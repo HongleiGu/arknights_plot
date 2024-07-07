@@ -1,0 +1,8 @@
+{{剧情模拟器|图片数据={{Widget:Data_Image}}|角色数据={{Widget:Data_Char}}|音频数据={{Widget:Data_Audio}}|文本数据=
+[HEADER(key="title_test", is_skippable=true, fit_mode="BLACK_MASK",is_video_only=true)] 
+[stopmusic]
+[Background(image="bg_black",screenadapt="coverall")]
+[playMusic(intro="$empty",key="$empty")]
+[Video(res="video/main_11/main_11_enter.mp4")]
+}}
+{{剧情导航}}
