@@ -1,0 +1,2 @@
+"use strict";(self["webpackChunkvue2router"]=self["webpackChunkvue2router"]||[]).push([[854],{8854:function(u,e,n){n.r(e),n.d(e,{default:function(){return c}});var r=function(){var u=this;u._self._c;return u._m(0)},t=[function(){var u=this,e=u._self._c;return e("div",[e("p",[u._v("404")]),e("p",[u._v("404")]),e("p",[u._v("404")]),e("p",[u._v("404")]),e("p",[u._v("404")])])}],l={name:"BaseMy"},s=l,v=n(1656),_=(0,v.A)(s,r,t,!1,null,null,null),c=_.exports}}]);
+//# sourceMappingURL=854.c12f0e17.js.map
