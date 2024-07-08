@@ -97,7 +97,7 @@ export default {
             console.log(this.max_id)
             // this.comments.push({"position":this.position, "content":this.content, "id": this.max_id, "type": this.type})
             await axios({
-                url: "http://127.0.0.1:8000/add_comments",
+                url: this.$store.state.url + "/add_comments",
                 params: {
                     content: this.content,
                     position: this.position,
@@ -123,7 +123,7 @@ export default {
             this.comments = this.comments.filter(a => (a.id != id))
             console.log(id)
             await axios({
-                url: "http://127.0.0.1:8000/delete_comments",
+                url: this.$store.state.url + "/delete_comments",
                 params: {
                     maxId: id,
                     filename: this.filename
@@ -140,7 +140,7 @@ export default {
                 }
             })
             await axios({
-                url: "http://127.0.0.1:8000/edit_comments",
+                url: this.$store.state.url + "/edit_comments",
                 params: {
                     id: id,
                     content: content,//e.currentTarget.parentNode.previousElementSibling.value,
@@ -153,7 +153,7 @@ export default {
         async save(){
             await this.updateComments()
             axios({
-                url: "http://127.0.0.1:8000/save",
+                url: this.$store.state.url + "/save",
                 params: {
                     // comments: JSON.stringify(this.comments),
                     filepath: this.filename//"./plot/主线/序章/上
@@ -165,7 +165,7 @@ export default {
         },
         async updateComments () {
             await axios({
-                url: "http://127.0.0.1:8000/update_comments",
+                url: this.$store.state.url + "/update_comments",
                 params: {
                     filename: this.filename
                 }
@@ -183,7 +183,7 @@ export default {
         this.max_id = this.comments.length
         // console.log(this.$route.query.key)
         await axios({
-            url: "http://127.0.0.1:8000/get_files",
+            url: this.$store.state.url + "/get_files",
             params: {
                 filename: this.filename//"./plot/主线/序章/上"
             }
@@ -198,7 +198,7 @@ export default {
             return
         }
         await axios({
-            url: "http://127.0.0.1:8000/get_comments",
+            url: this.$store.state.url + "/get_comments",
             params: {
                 filename: this.filename//"untitled.txt"
             }

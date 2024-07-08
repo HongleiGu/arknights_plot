@@ -61,7 +61,7 @@ export default {
     },
     async created() {
         const res = await axios({
-            url: "http://127.0.0.1:8000/get_all_comments"
+            url: this.$store.state.url + "/get_all_comments"
         })
         this.comments = res.data
         console.log(this.comments[0])

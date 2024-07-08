@@ -48,7 +48,7 @@ export default {
   },
   async created() {
     await axios({
-      url: "http://127.0.0.1:8000/get_answer",
+      url: this.$store.state.url + "/get_answer",
       params: {
           target_filename: this.currentData.filename,
           target_id: this.currentData.id,
@@ -69,7 +69,7 @@ export default {
     },
     async deleteAnswer(data){
       await axios({
-        url: "http://127.0.0.1:8000/delete_answer",
+        url: this.$store.state.url + "/delete_answer",
         params: {
           target_filename: this.currentData.filename,
           target_id: this.currentData.id,
@@ -79,7 +79,7 @@ export default {
       })
       this.temp_comments = this.temp_comments.filter(res => (res.filename != data.filename && res.id != data.id))
       await axios({
-        url: "http://127.0.0.1:8000/get_answer",
+        url: this.$store.state.url + "/get_answer",
         params: {
             target_filename: this.currentData.filename,
             target_id: this.currentData.id,
@@ -95,7 +95,7 @@ export default {
         return
       }
       await axios({
-        url: "http://127.0.0.1:8000/add_answer",
+        url: this.$store.state.url + "/add_answer",
         params: {
           target_filename: this.currentData.filename,
           target_id: this.currentData.id,
@@ -104,7 +104,7 @@ export default {
         }
       })
       await axios({
-        url: "http://127.0.0.1:8000/get_answer",
+        url: this.$store.state.url + "/get_answer",
         params: {
             target_filename: this.currentData.filename,
             target_id: this.currentData.id,

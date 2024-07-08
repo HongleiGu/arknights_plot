@@ -32,7 +32,7 @@ export default {
         filepath = ""
       }
       const res = await axios({
-        url: "http://127.0.0.1:8000/list_files",
+        url: this.$store.state.url + "/list_files",
         params: {
           filepath: "./plot/"+filepath
         }
