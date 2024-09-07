@@ -13,7 +13,7 @@ app = FastAPI()
 from typing import Optional
 from pydantic import BaseModel
 #第二步导入相应的模块
-from PyPDF2 import PdfReader, PdfWriter
+# from PyPDF2 import PdfReader, PdfWriter
 import urllib
 from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
@@ -28,7 +28,7 @@ default_content_position = 14
 
 document = {}
 # plot = {}
-from PyPDF2 import PdfReader
+# from PyPDF2 import PdfReader
 
 def valid_plot(x):
     if x.split(".")[-1] == "ipynb":
@@ -43,6 +43,7 @@ def valid_plot(x):
 @app.get("/list_files")
 def list_files(filepath):
     filepath = urllib.parse.unquote(filepath)
+    filepath = "./plot/" + filepath
     print(filepath)
     filelist = list(filter(valid_plot, os.listdir(filepath)))
     rtrn = []
@@ -72,7 +73,7 @@ def get_files(filename):
         
 #     print(filename)
     filename = filename.split("#")[0]
-    with open("./database.json", "r") as file:
+    with open("./database.json", "r", encoding = "utf-8") as file:
         document[filename] = json.load(file)[filename]
     for i in range(len(document[filename]["plot"])):
         document[filename]["plot"][i]["id"] = i
@@ -107,7 +108,7 @@ def get_comments(filename):
     global document
     filename = filename.split("#")[0]
 #     with open("./" + filename + ".json", "r") as f:
-    with open("./database.json") as f:
+    with open("./database.json", encoding="utf-8") as f:
         document[filename]["comments"] = json.load(f)[filename]["comments"]
     print(document[filename]["comments"])
     for i in range(len(document[filename]["comments"])):
@@ -160,37 +161,37 @@ def edit_comments(id, content, filename):
         if int(document[filename]["comments"][i]["id"]) == int(id):
             document[filename]["comments"][i]["content"] = content
     
-@app.get("/get_file_type")
-def get_file_type(path):
-    if os.path.exists(path + ".txt"):
-        return "txt"
-    elif os.path.exists(path + ".pdf"):
-        return "pdf"
-    return ""
+# @app.get("/get_file_type")
+# def get_file_type(path):
+#     if os.path.exists(path + ".txt"):
+#         return "txt"
+#     elif os.path.exists(path + ".pdf"):
+#         return "pdf"
+#     return ""
 
-@app.get("/get_files_pdf")
-def get_files_pdf(filename):
-    reader = PdfReader(filename + ".pdf")
-    # 不解密可能会报错：PyPDF2.utils.PdfReadError: File has not been decrypted
-    if reader.is_encrypted:
-        reader.decrypt('')
-#     print
+# @app.get("/get_files_pdf")
+# def get_files_pdf(filename):
+#     reader = PdfReader(filename + ".pdf")
+#     # 不解密可能会报错：PyPDF2.utils.PdfReadError: File has not been decrypted
+#     if reader.is_encrypted:
+#         reader.decrypt('')
+# #     print
 
-    page = reader.pages[0]
-    pdf_bytes = BytesIO()
-    pdf_writer = PdfWriter()
-    pdf_writer.add_page(page)
-    pdf_writer.write(pdf_bytes)
-    pdf_bytes.seek(0)
+#     page = reader.pages[0]
+#     pdf_bytes = BytesIO()
+#     pdf_writer = PdfWriter()
+#     pdf_writer.add_page(page)
+#     pdf_writer.write(pdf_bytes)
+#     pdf_bytes.seek(0)
 
     
-#     return 
-    response = Response(content=pdf_bytes.getvalue(), media_type="application/pdf")
+# #     return 
+#     response = Response(content=pdf_bytes.getvalue(), media_type="application/pdf")
 
-#     设置响应头，告诉浏览器以附件形式保存文件
-#     response.headers["Content-Disposition"] = f"attachment; filename={path}.pdf"
+# #     设置响应头，告诉浏览器以附件形式保存文件
+# #     response.headers["Content-Disposition"] = f"attachment; filename={path}.pdf"
 
-    return response
+#     return response
 
 @app.get("/add_answer")
 def add_answer(target_filename, target_id, answer_filename, answer_id):
