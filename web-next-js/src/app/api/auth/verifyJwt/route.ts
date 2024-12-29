@@ -1,18 +1,18 @@
 // import { getSession } from "next-auth/react";
-import { getServerSession } from "next-auth/next";
+// import { getServerSession } from "next-auth/next";
 // import { NextAuthOptions } from "next-auth";
 // import { NextApiRequest, NextApiResponse } from "next";
 import { User } from "next-auth";
 import { NextApiRequest } from "next";
-import { authOptions } from "../[...nextauth]/route";
+import { getSession } from "../[...nextauth]/route";
 
 export async function GET(req: NextApiRequest): Promise<Response> {
   // Retrieve the session from the request
   // console.log(req)
   // const session = await getSession({ req });
   // const session = await getServerSession(req, authOptions)
-  const session = await getServerSession({ req, ...authOptions });
-
+  // const session = await getServerSession({ req, ...authOptions });
+  const session = await getSession(req)
   // console.log(session)
 
   // Check if the session exists

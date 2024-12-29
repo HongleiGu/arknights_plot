@@ -6,7 +6,7 @@ import type { User as NextAuthUser } from "next-auth";
 import { NextApiRequest, NextApiResponse } from "next";
 
 // Define the NextAuth options
-export const authOptions: NextAuthOptions = {
+const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
