@@ -3,7 +3,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { authOptions } from "./options";
 
 // Function to set CORS headers
-const setCorsHeaders = (res: NextApiResponse) => {
+export const setCorsHeaders = (res: NextApiResponse) => {
   res.setHeader('Access-Control-Allow-Origin', '*'); // Replace with your allowed origin
   res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
