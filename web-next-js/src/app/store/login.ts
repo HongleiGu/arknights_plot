@@ -10,7 +10,7 @@ interface UserState {
 
 const useUserStore = create<UserState>((set) => {
   const verifyJwt = async () => {
-    const response = await fetch('/api/auth/verifyJwt', {
+    const response = await fetch(`${process.env.URL}/api/auth/verifyJwt`, {
       method: 'GET',
       credentials: 'include', // Include credentials for cookie-based sessions
     });
@@ -27,7 +27,6 @@ const useUserStore = create<UserState>((set) => {
 
   // Call verifyJwt on store initialization
   verifyJwt();
-  console.log(this)
 
   return {
     user: null, // Initial state

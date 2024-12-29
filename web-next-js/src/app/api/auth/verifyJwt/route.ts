@@ -1,18 +1,17 @@
 // import { getSession } from "next-auth/react";
-// import { getServerSession } from "next-auth/next";
+import { getServerSession } from "next-auth/next";
 // import { NextAuthOptions } from "next-auth";
 // import { NextApiRequest, NextApiResponse } from "next";
 import { User } from "next-auth";
-import { NextApiRequest } from "next";
-import { getSession } from "../[...nextauth]/route";
+// import { NextApiRequest } from "next";
+import { authOptions } from "../options";
 
-export async function GET(req: NextApiRequest): Promise<Response> {
+export async function GET(req: Request) {
   // Retrieve the session from the request
   // console.log(req)
   // const session = await getSession({ req });
   // const session = await getServerSession(req, authOptions)
-  // const session = await getServerSession({ req, ...authOptions });
-  const session = await getSession(req)
+  const session = await getServerSession({ req, ...authOptions });
   // console.log(session)
 
   // Check if the session exists
@@ -33,13 +32,14 @@ export async function GET(req: NextApiRequest): Promise<Response> {
 
   // Return the user's session info if verified
   return new Response(JSON.stringify({
-    message: "JWT is valid",
-    user: {
+      message: "JWT is valid",
+      user: {
       name: session.user.name,
       // You can include other user details as needed
-    } as User,
-  }), {
+      } as User,
+    }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
-  });
+    }
+  );
 }
