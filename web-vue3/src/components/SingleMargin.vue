@@ -1,34 +1,56 @@
 <script setup>
-import { editComment } from '@/utils/api';
+import {ref} from 'vue'
 const props = defineProps({
-  position: Number,
-  type: String,
-  content: String,
-  ID: Number
+  commentId: Number,
+  dialogId: Number,
+  choiceId: Number,
+  story: String,
+  chapter: String,
+  username: String,
+  commentContent: String,
+  storyType: String
 })
 
-const emit = defineEmits(['deleteComments', 'editComments'])
+const disabled = ref(true)
+
+const contentSpan = ref(null)
+const contentTextarea = ref(null)
+
+const emit = defineEmits(['deleteComments', 'editComments','chooseBlock'])
 const deleteThis = () => {
-  emit('deleteComments', props.ID)
+  emit('deleteComments', props.commentId)
 }
 
 const editThis = (e) => {
-  e.target.parentNode.children[1].disabled = !(e.target.parentNode.children[1].disabled)
-  if (e.target.parentNode.children[1].disabled === true){
-    console.log("edited")
-    emit('editComments', props.ID, e.target.parentNode.children[1].value)
-    // editComment(props.ID, props.content, )
+  disabled.value = !disabled.value
+  if (disabled.value === true){
+    emit('editComments', props.commentId, contentSpan.value?.value || contentTextarea.value?.value)
   }
 }
 </script>
 
 <template>
-  <div class="margin-item">
+  <div class="margin-item" @click="emit('chooseBlock')">
     <div class="info">
-      <span class="position-title">位置:{{props.position}}</span>
-      <span class="type-title">类型:{{props.type}}</span>
+      <span class="username-title">用户:{{props.username}}</span>
     </div>
-    <textarea disabled class="content" :placeholder="props.content">{{props.content}}</textarea>
+    <div class="content" @click="emit('chooseBlock')" ref="content">
+      <span
+        v-if="disabled"
+        class="content-item"
+        ref="contentSpan"
+      >
+        {{props.commentContent}}
+      </span>
+      <textarea
+        v-else
+        type="text"  
+        class="content-item" 
+        ref="contentTextarea"
+      >
+      {{props.commentContent}}
+      </textarea>
+    </div>
     <button class="delete" @click="deleteThis">删除</button>
     <button class="edit" @click="editThis($event)">编辑</button>
     <button class="add-answer" @click="addAnswer">添加关联</button>
@@ -58,7 +80,7 @@ const editThis = (e) => {
   border-width: 0 1px 0 0;
 }
 
-.margin-item .position-title{
+.margin-item .username-title{
   position: absolute;
   top: vh(20);
   left: vw(10);
@@ -72,19 +94,19 @@ const editThis = (e) => {
   word-wrap:break-word;
 }
 
-.margin-item .type-title{
-  position: absolute;
-  top: vh(60);
-  left: vw(10);
-  height: vh(20);
-  width: 100%;
-  color: white;
-  font-family: 'Han Sans SC';
-  font-weight: 900;
-  font-size: vh(15);
-  line-height: vh(15);
-  word-wrap:break-word;
-}
+// .margin-item .type-title{
+//   position: absolute;
+//   top: vh(60);
+//   left: vw(10);
+//   height: vh(20);
+//   width: 100%;
+//   color: white;
+//   font-family: 'Han Sans SC';
+//   font-weight: 900;
+//   font-size: vh(15);
+//   line-height: vh(15);
+//   word-wrap:break-word;
+// }
 
 .margin-item .content {
   position: absolute;
@@ -92,6 +114,15 @@ const editThis = (e) => {
   left: vw(110);
   height: vh(80);
   width: vw(180);
+}
+
+.margin-item .content .content-item {
+  position: absolute;
+  top: 0px;
+  left: 0px;
+  margin: 0px;
+  height: 100%;
+  width: 100%;
   color: white;
   font-size: vh(15);
   font-family: 'Han Sans SC';

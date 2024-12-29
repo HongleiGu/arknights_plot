@@ -1,86 +1,196 @@
 import axios from "axios";
+import { useLoginStore } from "@/stores/login";
+import router from "@/router";
 
-const url = "http://127.0.0.1:8000"
+const store = useLoginStore()
+const url = store.url
 
 export async function listFiles(path){
+  await store.checkLoginState()
   const res = await axios({
-    url: url + "/list_files",
+    url: url + "/listFiles",
     method: "get",
     params: {
       filepath: path
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
     }
   })
-  console.log(res.data)
-  return res.data
+  return res.data.data
 }
 
-export async function getData(path){
+export async function getData(story, chapter, pageNum, pageSize){
+  await store.checkLoginState()
   const res = await axios({
-    url: url + "/get_files",
+    url: url + "/listPlots",
     method: "get",
     params: {
-      filename: path
+      story: story,
+      chapter: chapter,
+      pageNum: pageNum,
+      pageSize: pageSize
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
     }
   })
-  console.log(res)
-  return res.data
+  return res.data.data
 }
 
-export async function getAllComments(path){
+export async function getComments(story, chapter, username){
+  await store.checkLoginState()
   const res = await axios({
-    url: url + "/get_comments",
+    url: url + "/listComments",
     method: "get",
     params: {
-      filename: path
+      story: story,
+      chapter: chapter,
+      username: username
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
     }
   })
-  console.log(res)
-  return res.data
+  return res.data.data
 }
 
-export async function save(path){
+export async function addComment(dialogId, choiceId, outcomeId, story, chapter, username, commentContent, storyType){
+  await store.checkLoginState()
   await axios({
-    url: url + "/save",
-    method: "get",
-    params: {
-      filepath: path
-    }
-  })
-}
-
-export async function addComment(comment, path){
-  await axios({
-    url: url+"/add_comments",
-    method: "get",
-    params: {
-      comment: JSON.stringify(comment),
-      filename: path
-    }
-  })
-}
-
-export async function deleteComment(id, path){
-  await axios({
-    url: url+"/delete_comments",
-    method: "get",
-    params: {
-      maxId: id,
-      filename: path
+    url: url+"/insertComments",
+    method: "post",
+    data: {
+      dialogId: dialogId,
+      choiceId: choiceId,        
+      outcomeId: outcomeId,
+      story: story,
+      chapter: chapter,
+      username: username,
+      commentContent: commentContent,
+      storyType: storyType
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
     }
   })
 }
 
-export async function editComment(id, content, path){
+export async function deleteComments(commentId){
+  await store.checkLoginState()
   await axios({
-    url: url+"/edit_comments",
-    method: "get",
+    url: url+"/deleteComments",
+    method: "delete",
     params: {
-      id: id,
-      content: content,
-      filename: path
+      commentId: commentId
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
     }
   })
 }
+
+export async function editComments(commentId, commentContent){
+  await store.checkLoginState()
+  console.log("edit")
+  return await axios({
+    url: url+"/editComments",
+    method: "post",
+    data: {
+      commentId: commentId,
+      commentContent: commentContent
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
+    }
+  })
+}
+
+export async function listOutcomes(decisionValue, decisionId, chapter, story){
+  await store.checkLoginState()
+  const data = await axios({
+    url: url+"/listOutcomes",
+    method: "get",
+    params: {
+      story: story,
+      decisionValue: decisionValue,
+      decisionId: decisionId,
+      chapter: chapter
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
+    }
+  })
+  return data.data.data.list
+}
+
+export async function listChoices(decisionId, chapter, story){
+  await store.checkLoginState()
+  const data = await axios({
+    url: url+"/listChoices",
+    method: "get",
+    params: {
+      story: story,
+      decisionId: decisionId,
+      chapter: chapter
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
+    }
+  })
+  return data.data.data.list
+}
+
+export async function login(username, password) {
+  const data = await axios({
+    url: url + '/account/login',
+    method: 'post',
+    data: {
+      password: password,
+      username: username
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
+    }
+  })
+  store.loggedIn = true
+  store.username = username
+  return data.data
+}
+
+export async function register(username, password) {
+  const data = await axios({
+    url: url + '/account/register',
+    method: 'post',
+    data: {
+      password: password,
+      username: username
+    },
+    headers: {
+      "Authorization": localStorage.getItem("login_token") 
+    }
+  })
+  return data.data
+}
+
+// export async function checkLoginState() {
+//   const token = localStorage.getItem("login_token") 
+//   if (token == NULL) {
+//     notLoggedIn()
+//   }
+//   const data = await axios({
+//     url: url + '/account/identifyJwt',
+//     method: 'post',
+//     data: {
+//       jwt: token
+//     },
+//   })
+//   if (data.data == null) {
+//     notLoggedIn()
+//   }
+//   store.username = data.data.username
+//   store.loggedIn = true
+// }
 
 export const debounce = (fn, delay) => {
 	let timer;

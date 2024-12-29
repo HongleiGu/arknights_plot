@@ -1,0 +1,11 @@
+// src/styles/styles.scss
+@use './assets/base.scss' as *; // Adjust the path as necessary
+
+body {
+  font-family: Arial, sans-serif;
+}
+
+// .some-class {
+//   width: _functions.vw(300px); // Use the vw function
+//   height: _functions.vh(150px); // Use the vh function
+// }

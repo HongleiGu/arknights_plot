@@ -1,0 +1,14 @@
+services:
+  db:
+    image: mysql:lts # latest会出错，改用lts试试
+    container_name: arknights_plot
+    volumes:
+      # - /mnt/d/docker/mysql/conf/my.cnf:/etc/my.cnf # 映射配置目录，宿主机:容器
+      - /mnt/d/docker/mysql/data:/var/lib/mysql # 映射数据目录，宿主机:容器
+      - /mnt/d/docker/mysql/log:/var/log/mysql # 映射日志目录，宿主机:容器
+    environment:
+      - "MYSQL_ROOT_PASSWORD=123456"
+      - "MYSQL_DATABASE=plots"
+    ports:
+      - 3306:3306  # Expose port 3306
+    restart: always

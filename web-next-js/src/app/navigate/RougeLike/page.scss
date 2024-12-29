@@ -1,0 +1,155 @@
+@use "@/app/base.scss" as *;
+
+.RougePage {
+  &.sidebar{
+    height: 100%;
+    width: vw(370);
+    position: absolute;
+    right: 0px;
+    background-color: black;
+    border: 1px solid white;
+    z-index: 6;
+    .title-en{
+      font-family: 'Han Sans SC';
+      color: white;
+      font-size:vh(40);
+      font-weight: 900;
+      position: absolute;
+      top: vh(650);
+      left: vw(100);
+      height: vh(40);
+      width: vw(250);
+      text-align: right;
+      z-index: 7;
+      line-height: vh(40);
+    };
+    .title-arknights{
+      font-family: 'Han Sans SC';
+      color: white;
+      font-size:vh(20);
+      font-weight: 400;
+      position: absolute;
+      top: vh(620);
+      left: vw(100);
+      height: vh(40);
+      width: vw(250);
+      text-align: right;
+      z-index: 7;
+      line-height: vh(20);
+    };
+    .icon{
+      position: absolute;
+      top: vh(600);
+      left: vw(20);
+      height: vh(96);
+      width: vw(96);
+      z-index: 6;
+    }
+  }
+
+  &.list-wrapper {
+    position: absolute;
+    height: vh(880);
+    width: vw(1550);
+    top: vh(200);
+    left: 0px;
+    background-color: black;
+    overflow-x: scroll;
+    scrollbar-width: none;
+  }
+
+  &.list{
+    position: absolute;
+    height: vh(700);
+    width: max-content;
+    top: 0px;
+    left: 0px;
+    margin: 0px;
+    padding: 0px;
+    display: flex;
+    flex-direction: row;
+  }
+
+  &.list-item{
+    position: relative;
+    height: 100%;
+    width: vw(387.5);
+    border: 1px solid white;
+    top: 0px;
+    overflow: hidden;
+    .image{
+      height: 100%;
+      width: auto;
+      // left: vw(-400);
+      position: absolute;
+      top: 0px;
+    }
+    .title{
+      height: vh(65);
+      width: vw(300);
+      color: white;
+      font-weight: 900;
+      font-size: vh(15);
+      position: absolute;
+      top: vh(500);
+      left: vw(80);
+    }
+    .title-en{
+      height: vh(20);
+      width: vw(300);
+      color: white;
+      font-weight: 900;
+      font-size: vh(15);
+      position: absolute;
+      top: vh(550);
+      left: vw(80);
+    };
+    .view-more{
+      height: vh(20);
+      width: vw(200);
+      color: white;
+      font-weight: 900;
+      font-size: vh(15);
+      position: absolute;
+      top: vh(600);
+      left: vw(80);
+      border-bottom: 1px solid white;
+    };
+    .icon{
+      position: absolute;
+      top: 0;//vh(600);
+      left: vw(20);
+      height: vh(96);
+      width: vw(200);
+      z-index: 6;
+    }
+  }
+
+  @keyframes selected {
+    0% {
+      left: vw(100);
+    }
+    100% {
+      left: vw(200);
+    }
+  }
+
+  &.decoration {
+    position: absolute;
+    bottom: 0px;
+    left: 0px;
+    height: vh(180);
+    width: vw(1550);
+    .text{
+      position: absolute;
+      bottom: 0px;
+      left: 0px;
+      color: rgba(0,191,255,0.3);
+      font-family: 'Han Sans SC';
+      height: 100%;
+      width: 100%;
+      font-weight: 900;
+      font-size: vh(150);
+    }
+  }
+}

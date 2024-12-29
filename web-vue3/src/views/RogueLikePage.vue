@@ -159,6 +159,11 @@ const goToNav = async (item) => {
   top: 0px;
 }
 
+.list .icon{
+  z-index: 100;
+  position: absolute
+}
+
 .list .title{
   height: vh(65);
   width: vw(300);

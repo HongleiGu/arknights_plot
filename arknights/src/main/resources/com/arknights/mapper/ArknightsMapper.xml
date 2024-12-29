@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.arknights.mapper.ArknightsMapper">
+
+  <!-- insertPlot --> 
+
+  <insert id="insertPlot">
+    INSERT INTO plots (story, chapter, dialog, speaker, dialog_type, story_type)
+    VALUES(#{story}, #{chapter}, #{dialog}, #{speaker}, #{dialogType}, #{storyType})
+  </insert>
+
+  <!-- insertChoices -->
+
+  <insert id="insertChoices">
+    INSERT INTO choices (decision_id, decision, story, chapter, decision_value, story_type)
+    VALUES(#{decisionId}, #{decision}, #{story}, #{chapter}, #{decisionValue}, #{storyType})
+  </insert>
+
+  <!-- insertOutcomes --> 
+
+  <insert id="insertOutcomes">
+    INSERT INTO outcomes (decision_id, dialog, speaker, dialog_type, story, chapter, decision_value, story_type)
+    VALUES(#{decisionId}, #{dialog}, #{speaker}, #{dialogType}, #{story}, #{chapter}, #{decisionValue}, #{storyType})
+  </insert>
+
+  <!-- insertComments --> 
+
+  <insert id="insertComments">
+    <choose>
+      <when test="dialogId != null">
+        INSERT INTO comments (dialog_id, story, chapter, username, comment_content, story_type)
+        VALUES(#{dialogId}, #{story}, #{chapter}, #{username}, #{commentContent}, #{storyType})
+      </when>
+      <when test="decisionId != null AND outcomeId == null">
+        INSERT INTO comments (choice_id, story, chapter, username, comment_content, story_type)
+        VALUES(#{decisionId}, #{story}, #{chapter}, #{username}, #{commentContent}, #{storyType})
+      </when>
+      <when test="choiceId != null AND outcomeId != null">
+        INSERT INTO comments (outcome_id, story, chapter, username, comment_content, story_type)
+        VALUES(#{outcomeId}, #{story}, #{chapter}, #{username}, #{commentContent}, #{storyType})
+      </when>
+    </choose>
+  </insert>
+
+  <!-- listPlots --> 
+
+  <select id="listPlots">
+    SELECT * FROM plots WHERE story = #{story} AND chapter = #{chapter}
+  </select>
+
+  <!-- listComments --> 
+
+  <select id="listComments">
+    SELECT * FROM comments WHERE story = #{story} AND chapter = #{chapter} AND username = #{username}
+  </select>
+
+  <!-- editComments --> 
+
+  <update id="editComments">
+    UPDATE comments SET comment_content = #{commentContent} WHERE comment_id = #{commentId}
+  </update>
+
+  <!-- deleteComments --> 
+
+  <delete id="deleteComments">
+    DELETE FROM comments WHERE comment_id = #{commentId}
+  </delete>
+
+  <!-- listOutcomes --> 
+
+  <select id="listOutcomes">
+    SELECT * FROM outcomes WHERE decision_id = #{decisionId} AND chapter = #{chapter} AND story = #{story} AND decision_value = #{decisionValue}
+  </select>
+
+  <!-- listChoices --> 
+
+  <select id="listChoices">
+    SELECT * FROM choices WHERE decision_id = #{decisionId} AND chapter = #{chapter} AND story = #{story}
+  </select>
+
+  <!-- listAllComments --> 
+
+  <select id="listAllComments">
+    SELECT * FROM comments
+  </select>
+
+  <!-- listImage --> 
+
+  <!-- <select id="listImage">
+    SELECT * FROM images
+    <if test="storyName != NULL">
+      WHERE name = #{storyName}
+    </if>
+    <if test="type != NULL">
+      WHERE type = #{type}
+    </if>
+  </select> -->
+</mapper>

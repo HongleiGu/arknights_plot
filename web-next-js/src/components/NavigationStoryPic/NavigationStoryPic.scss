@@ -1,0 +1,46 @@
+@use '@/app/base.scss' as *;
+
+.NavigationStoryPic {
+  &.grid{
+    list-style: none;
+    height: vh(270);
+    width: vw(160);
+    position: relative;
+    img{
+      position: absolute;
+      top: vh(35);
+      right: 0px;
+      height: vh(200);
+      width: vw(160);
+    }
+    .bottom-bar{
+      position: absolute;
+      bottom: vh(35);
+      left: 0px;
+      height: vh(50);
+      width: 100%;
+      background-color: black;
+      .underline{
+        position: absolute;
+        height: 1px;
+        width: 100%;
+        top: 50%;
+        background-color: #fff;
+      };
+      .text{
+        position: absolute;
+        top: 0px;
+        left: 0px;
+        font-family: 'Han Sans SC';
+        font-weight: 900;
+        line-height: vh(18);
+        font-size: vh(18);
+        color: white;
+        height: vh(18);
+        width: vw(300);
+        top: vh(3.67);
+        left: vw(10.67);
+      }
+    }
+  }
+}

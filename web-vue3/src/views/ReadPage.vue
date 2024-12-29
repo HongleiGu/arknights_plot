@@ -1,135 +1,178 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { onMounted, ref, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
-import { getData, getAllComments } from '@/utils/api';
-import { save, addComment, deleteComment, editComment } from '@/utils/api';
+import { getData, getComments } from '@/utils/api';
+import { addComment, deleteComments, editComments } from '@/utils/api';
 import SingleDialog from '@/components/SingleDialog.vue';
 import SingleMargin from '@/components/SingleMargin.vue';
-import SelectedPart from '@/components/SelectedPart.vue';
+import SingleChoice from '@/components/SingleChoice.vue';
+import { ElPagination } from 'element-plus';
+import { useLoginStore } from '@/stores/login';
 const router = useRouter();
 let path = router.currentRoute.value.fullPath.replace("sideStory","支线").replace("mainStory", "主线").replace("Collections","剧情").replace("special","剧情/特殊").replace("/RawHCL","沙中之火/生息演算").replace("/navigate","")
 path = decodeURIComponent(path)
 if (path[0] === "/"){
   path = path.substring(1)
 }
-const filename = path.split('/')[path.split('/').length-1].split('.')[0].split("#")[0]
+const chapter = path.split('/')[path.split('/').length-1].split('.')[0].split("#")[0]
+const story = path.split('/')[path.split('/').length-2]
+const storyType = path.split('/')[path.split('/').length-3]
+
+const store = useLoginStore()
+// console.log(store)
+const chosenDialog = ref("") // 当前正在阅读的dialog
+const chosenMargin = ref ("") // 当前正在阅读的margin
+const chosenDialogPage = ref(1)
+const chosenMarginPage = ref(1)
+const chosenDialogPageSize = ref(10)
+const chosenMarginPageSize = ref(10)
 const file = ref([])
 const comments = ref([])
-const refreshComments = () => {
-  console.log(comments.value)
-  for (let i of comments.value){
-    const selectedSpan = document.querySelector(`.content-wrapper .content`).children[i.position]
-    // selectedSpan.querySelectorAll("a").forEach(it => {selectedSpan.innerHTML.replace(it.innerHTML, it.innerText)})
-    const selectedText = file.value[i.position].content.substring(i.start, i.end)
-    selectedSpan.innerHTML = selectedSpan.innerHTML.replace(selectedText, `<a class="chosen" href="#margin${i.id}">${selectedText}</a>`)
+const contentRef = ref()
+const marginRef = ref()
+
+const commentPageNum = ref(1)
+const commentPageSize = ref(10)
+
+const plotPageNum = ref(1)
+const plotPageSize = ref(10)
+
+const plotNum = ref()
+const commentNum = ref()
+
+const displayPlots = ref(true) // 仅仅是为了让v-for更新
+const displayComments = ref(true) // 仅仅是为了让v-for更新
+
+
+
+
+const refreshComments = async () => {
+  displayComments.value = false
+  const res = await getComments(story, chapter, store.username, commentPageNum.value, commentPageSize.value)
+  comments.value = res.list
+  commentNum.value = res.total
+  // chosenMarginPage.value = commentPageNum.value
+  // chosenMarginPageSize.value = commentPageSize.value
+  displayComments.value = true
+  await nextTick()
+  if (marginRef.value != null && chosenMargin.value != "") {
+    const obj = marginRef.value.querySelector(`#${chosenMargin.value}`)
+    // console.log(obj)
+    if (obj != null) {
+      obj.classList.add("chosen")
+    }
   }
 }
-onMounted(async() =>{
-  file.value = await getData(path)
-  comments.value = await getAllComments(path)
-  refreshComments()
-  // comments.value = comments.value.filter(it => it)
+
+const refreshPlots = async () => {
+  displayPlots.value = false
+  // console.log(plotPageNum, plotPageSize)
+  const res = await getData(story, chapter, plotPageNum.value, plotPageSize.value)
+  file.value = res.list
+  plotNum.value = res.total
+  // chosenDialogPage.value = plotPageNum.value
+  // chosenDialogPageSize.value = plotPageSize.value
+  displayPlots.value = true
+  await nextTick()
+  // console.log(contentRef.value)
+  if (contentRef.value != null && chosenDialog.value != "") {
+    const obj = contentRef.value.querySelector(`#${chosenDialog.value}`)
+    // console.log(obj)
+    if (obj != null) {
+      obj.classList.add("chosen")
+    }
+  }
+}
+
+onMounted(async () => {
+  // console.log(contentRef.value)
+  await refreshPlots()
+  await refreshComments()
 })
 
-const currentDialog = ref(0)
-const currentMargin = ref(0)
+const countPrecedingChoices = (currentIndex) => {
+  return file.value.slice(0, currentIndex).filter(item => item.dialogType === '选择').length + 1;
+};
 
-const newComment = () => {
-  const selection = window.getSelection()
-  // 前提条件,只能选择一个span里的内容,多个span的话,选中的内容会出问题
-  if (selection.anchorNode != selection.extentNode){
-    alert("由于技术原因,本页面暂不支持跨越多个语句的选择")
+const chooseBlock = (plotid, commentid) => {
+  // console.log(plotid, commentid, contentRef.value)
+  if (plotid != null) {
+    contentRef.value.querySelectorAll(".chosen").forEach(it => {
+      it.classList.remove("chosen")
+    })
+    contentRef.value.querySelector(`#${plotid}`).classList.add("chosen")
+    chosenDialog.value = plotid
+  }
+  if (commentid != null) {
+    marginRef.value.querySelectorAll(".chosen").forEach(it => {
+      it.classList.remove("chosen")
+    })
+    marginRef.value.querySelector(`#${commentid}`).classList.add("chosen")
+    chosenMargin.value = commentid
+  }
+}
+
+const jumpToPlace = async () => {
+  if (chosenDialog.value != "") {
+    plotPageNum.value = chosenDialogPage.value
+    plotPageSize.value = chosenDialogPageSize.value
+    // console.log(plotPageNum.value, plotPageSize.value)
+    await refreshPlots()
+    contentRef.value.querySelector(`#${chosenDialog.value}`).scrollIntoView({ behavior: 'smooth' });
+  }
+  if (chosenMargin.value != "") {
+    commentPageNum.value = chosenMarginPage.value
+    commentPageSize.value = chosenMarginPageSize.value
+    await refreshComments()
+    contentRef.value.querySelector(`#${chosenMargin.value}`).scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+const pushIntoComments = (dialogId, choiceId, outcomeId, story, chapter, username, commentContent, storyType) => {
+  comments.value.push({
+    dialogId: dialogId,
+    choiceId: choiceId,        
+    outcomeId: outcomeId,
+    story: story,
+    chapter: chapter,
+    username: store.username,
+    commentContent: commentContent,
+    storyType: storyType
+  })
+}
+
+const clickAddComment = async () => {
+  // 进行插入或者删除操作后只在页面上更新,之后用户刷新页面的时候再从数据库拉取数据
+  if (chosenDialog.value.startsWith("dialog")) {
+    await addComment(chosenDialog.value.replace("dialog",""), null, null, story, chapter, store.username, "", storyType)
+    await refreshComments()
+    // pushIntoComments(chosenDialog.replace("dialog",""), null, null, story, chapter, username, "", storyType)
     return
   }
-  let start = selection.anchorOffset
-  let end = selection.focusOffset
-  if (end < start){
-    end += start
-    start = end - start
-    end = end - start
-  }
-  const selectedText = selection.toString()
-  const selectedSpan = document.querySelector(`.content #content${currentDialog.value} .dialog`)
-  // selectedSpan.innerHTML = selectedSpan.innerHTML.replace(selectedText, `<span class="chosen">${selectedText}</span>`)
-  console.log(comments.value.length)
-  const comment = {
-    "content": selectedText,
-    "filename": path.replace(".txt","").replace("plot","").split("#")[0],
-    "id": comments.value.length,
-    "position": currentDialog.value,
-    "start": start,
-    "end": end
-  }
-  comments.value.push(comment)
-  addComment(comment, path)
-  refreshComments()
-}
-
-const clearSelect = () => {
-  document.querySelectorAll(".dialog").forEach(it => {
-    if (it.querySelector(".chosen") == null){
+  else if (chosenDialog.value.startsWith("choice")) {
+    const decisionId = parseInt(chosenDialog.value.split("-")[0].replace("choice",""))
+    if (chosenDialog.contains("outcome")) {
+      const outcomeId = parseInt(chosenDialog.value.split("-")[1].replace("outcome",""))
+      await addComment(null, decisionId, outcomeId, story, chapter, store.username, "", storyType)
+      await refreshComments()
       return
     }
-    it.innerHTML=it.innerHTML.split("<span")[0] + it.innerHTML.split(">")[1].split("<")[0] + it.innerHTML.split("</span>")[1]
-  })
-}
-
-const saveFile = () => {
-  save(path)
-}
-
-const deleteComments = (id) => {
-  console.log("deleted")
-  deleteComment(id, path)
-  comments.value = comments.value.filter(it => it.id != id)
-  const toBeRestored = document.querySelector(`[href="#margin${id}"]`)
-  console.log(toBeRestored.parentNode.parentNode.innerHTML)
-  console.log(toBeRestored.parentNode.parentNode.innerHTML.replace(toBeRestored.parentNode.innerHTML, toBeRestored.innerText))
-  toBeRestored.parentNode.innerHTML = toBeRestored.parentNode.innerHTML.replace(toBeRestored.parentNode.innerHTML, toBeRestored.innerText)
-  refreshComments()
-}
-
-const editComments = (id, content) => {
-  editComment(id, content, path)
-  console.log(content)
-  console.log(id)
-  comments.value.forEach(it => {
-    if (it.id == id){
-      it.content = content
-    }
-  })
-  console.log(comments.value)
-  refreshComments()
-} 
-
-const changeDialog = (index) => {
-  console.log("changeDialog")
-  currentDialog.value = index
-}
-
-
-const changeMargin = (index) => {
-  console.log("changeMargin")
-  currentMargin.value = index
-}
-
-watch(
-  currentDialog,
-  (newVal, oldVal) => {
-    console.log(newVal)
-    document.querySelectorAll(".active-dialog").forEach(it => it.classList.remove("active-dialog"))
-    document.querySelectorAll(".content-item")[newVal].classList.add("active-dialog")
+    await addComment(null, decisionId, null, story, chapter, store.username, "", storyType)
+    await refreshComments()
+    // pushIntoComments(null, decisionId, null, story, chapter, username, "", storyType)
   }
-)
+}
 
-watch(
-  currentMargin,
-  (newVal, oldVal) => {
-    console.log(newVal)
-    document.querySelectorAll(".active-margin").forEach(it => it.classList.remove("active-margin"))
-    document.querySelectorAll(".margin-item")[newVal].classList.add("active-margin")
-  }
-)
+const deleteComment = async (commentId) => {
+  await deleteComments(commentId)
+  await refreshComments()
+  // comments.value = comments.value.filter (it => it.commentId != commentId)
+}
+
+const editComment = async (commentId, commentContent) => {
+  await editComments(commentId, commentContent)
+  await refreshComments()
+}
 </script>
 
 
@@ -137,21 +180,87 @@ watch(
   <div class="read-page">
     <img src="../assets/pics/阅读页.png" class="background" alt="test">
     <div class="content-wrapper">
-      <button class="new-margin" @click="newComment()">新建批注</button>
-      <button class="clear-select" @click="clearSelect()">取消选中</button>
-      <button class="save" @click="saveFile()">保存批注</button>
-      <span class="title">{{filename}}</span>
+      <button class="new-margin" @click="clickAddComment()">新建批注</button>
+      <button class="jump-to-place" @click="jumpToPlace">跳转</button>
+      <span class="title">{{chapter}}</span>
       <span class="decoration">PLOTS</span>
-      <div class="content">
-        <SingleDialog v-for="(item, index) in file" :speaker="item.role" :dialog="item.content" :key="index" :id="'content'+index" @click="changeDialog(index)"></SingleDialog>
-        <SingleDialog></SingleDialog>
+      <div class="content" ref="contentRef" v-if="displayPlots">
+        <div v-for="(item, index) in file"
+          :key="index"
+        >
+          <SingleChoice
+            v-if="item.dialogType=='选择'"
+            :dialogId="item.dialogId"
+            :story="item.story"
+            :chapter="item.chapter"
+            :dialog="item.dialog" 
+            :speaker="item.speaker"
+            :storyType="item.storyType"
+            :decisionId="countPrecedingChoices(index)"
+            :id="'choice'+countPrecedingChoices(index)"
+            @chooseBlock="chooseBlock"
+          >
+          </SingleChoice>
+          <SingleDialog 
+            v-else
+            :dialogId="item.dialogId"
+            :story="item.story"
+            :chapter="item.chapter"
+            :dialog="item.dialog" 
+            :speaker="item.speaker"
+            :storyType="item.storyType"
+            @click="chooseBlock('dialog'+item.dialogId, null)"
+            :id="'dialog'+item.dialogId"
+          >
+          </SingleDialog>
+        </div>
+      </div>
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="plotPageNum"
+          v-model:page-size="plotPageSize"
+          :page-sizes="[10,20,50]"
+          size="small"
+          :background="true"
+          layout="sizes, prev, pager, next, jumper"
+          :total="plotNum"
+          @size-change="refreshPlots"
+          @current-change="refreshPlots"
+        />
       </div>
     </div>
     <div class="margin-wrapper">
       <span class="title">批注</span>
       <span class="decoration">BOOKMARKS</span>
-      <div class="margin">
-        <SingleMargin v-for="(item, index) in comments" :position="item.position" :content="item.content" :key="'margin'+index" @click="changeMargin(index)" :ID="index" :id="'margin'+index" @deleteComments="deleteComments" @editComments="editComments"></SingleMargin>
+      <div class="margin" ref="marginRef" v-if="displayComments">
+        <SingleMargin 
+          v-for="(item, index) in comments" 
+          :commentId="item.commentId"
+          :dialogId="item.dialogId"
+          :choiceId="item.choiceId"
+          :story="item.story"
+          :chapter="item.chapter"
+          :username="item.username"
+          :commentContent="item.commentContent"
+          :storyType="item.commentContent"
+          :id="'margin'+item.commentId"
+          @deleteComments="deleteComment"
+          @editComments="editComment"
+          @chooseBlock="chooseBlock(null,'margin'+item.commentId)">
+        </SingleMargin>
+      </div>
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="commentPageNum"
+          v-model:page-size="commentPageSize"
+          :page-sizes="[10,20,50]"
+          size="small"
+          :background="true"
+          layout="sizes, prev, pager, next, jumper"
+          :total="commentNum"
+          @size-change="refreshComments"
+          @current-change="refreshComments"
+        />
       </div>
     </div>
   </div>
@@ -184,7 +293,7 @@ watch(
   border-radius: 20px;
 }
 
-.clear-select {
+.jump-to-place {
   position: absolute;
   top: vh(30);
   left: vw(250);
@@ -319,5 +428,25 @@ watch(
   background-color: rgba(0,0,0,0);
   overflow-y: scroll;
   scrollbar-width: none;
+}
+
+.pagination {
+  position: absolute;
+  bottom: 0px;
+  width: 100%;
+  height: max-content;
+  margin: 10px;
+  justify-content: center;
+}
+
+.pagination .el-pagination {
+  justify-content: center;
+  position: absolute;
+  height: 100%;
+  width: 100%;
+}
+
+:deep(.el-pagination.is-background .el-pager li:not(.is-disabled).is-active) {
+  background-color: darkred !important; //修改默认的背景色
 }
 </style>

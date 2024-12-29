@@ -9,7 +9,7 @@ const router = useRouter();
 const currentStory = router.currentRoute.value.params.story
 const currentItem = ref({})
 
-console.log(router.currentRoute.value.fullPath)
+console.log(decodeURI(router.currentRoute.value.fullPath))
 if (router.currentRoute.value.fullPath == "/navigate/special"){
   currentItem.value = specialImg[0]
 }
@@ -25,24 +25,24 @@ else if (router.currentRoute.value.fullPath == "/navigate/RawHCL"){
 }
 
 const goToNav = async (item) => {
-  router.push(router.currentRoute.value.fullPath + '/' + item.split('_').slice(1).join('_').replace("plot.txt","").replace(".txt",""))
+  router.push(decodeURI(router.currentRoute.value.fullPath) + '/' + item)
 }
 
 const files = ref([])
 let backupFiles = []
 onMounted(async () => {
-  files.value = await listFiles(router.currentRoute.value.fullPath.replace("sideStory","支线").replace("mainStory", "主线").replace("special","特殊").replace("Collections","剧情").replace("RawHCL","生息演算").replace("RogueLike","集成战略").replace("/navigate",""))
+  files.value = await listFiles(decodeURI(router.currentRoute.value.fullPath).replace("sideStory","支线").replace("mainStory", "主线").replace("special","特殊").replace("Collections","剧情").replace("RawHCL","生息演算").replace("RogueLike","集成战略").replace("/navigate",""))
   console.log(files.value)
-  const folders = files.value.filter(it => it.filename.indexOf(".") == -1)
-  files.value = files.value.filter(it => it.filename.substr(it.filename.length-8) == 'plot.txt')
-  files.value = files.value.sort((first, second) => parseInt(first.filename.split('_')[0]) - parseInt(second.filename.split('_')[0]))
+  const file = []
+  for (let k of Object.keys(files.value)) {
+    console.log(k, files.value[k])
+    if (files.value[k] === "file") {
+      file.push(k);
+    }
+  }
+  files.value = file.sort((a,b) => parseInt(a.split("_")[0]) - parseInt(b.split("_")[0]))
+  files.value = files.value.map(it => it.substring(it.indexOf("_")+1).split(".txt")[0])
   backupFiles = files.value
-  console.log(backupFiles)
-  files.value = files.value.map(it => it.filename.replace('plot.txt','').replace('BEG','行动前').replace('NBT','过场').replace('END','行动后'))
-  // console.log(files.value[0].split('-')[1].split('_')[0] > files.value[3].split('-')[1].split('_')[0])
-  files.value = files.value.map(it => it.split("_").slice(1).join("_").replace('_',' ').replace('_',' '))
-  files.value = files.value.concat(folders.map(it => it.filename))
-  // console.log(files)
 })
 
 
@@ -55,13 +55,13 @@ onMounted(async () => {
       <span class="info">{{currentItem.info}}</span>
       <div class="list">
         <div class="wrapper">
-          <div class="item" v-for="(item, index) in files" :key="index" @click="goToNav(backupFiles[index].filename)">
+          <div class="item" v-for="(item, index) in files" :key="index" @click="goToNav(files[index])">
             <!-- <span class="title">{{index+1}}</span> -->
             <span class="name">{{item}}</span>
           </div>
         </div>
       </div>
-      <button @click="goToNav(backupFiles[0].filename)">开始阅读</button>
+      <button @click="goToNav(files[0].filename)">开始阅读</button>
     </div>
     <div class="background">
       <img :src="currentItem.cover" alt="test">

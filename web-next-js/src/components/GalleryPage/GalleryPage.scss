@@ -1,0 +1,181 @@
+@use '@/app/base.scss' as *;
+
+.GalleryPage {
+  position: absolute;
+  height: 100%;
+  width: 100%;
+  background-color: black;
+  z-index: -100;
+  &.second-nav-page{
+    z-index: 0;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+    padding: 0px;
+    margin: 0px;
+    border: 0px;
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    background-color: black;
+  };
+  &.sidebar{
+    height: 100%;
+    position: fixed;
+    width: vw(670);
+    top: 0px;
+    right: 0px;
+    z-index: 100;
+    background-color: black;
+    border: 1px solid white;
+    .title{
+      height: vh(60);
+      width: vw(600);
+      line-height: vh(60);
+      font-size: vh(60);
+      font-family: 'Han Sans SC';
+      color: white;
+      position:absolute;
+      top: vh(200);
+      font-weight: 900;
+      left: vw(70);
+    };
+    .info{
+      height: vh(60);
+      width: vw(530);
+      line-height: vh(10);
+      font-size: vh(10);
+      font-family: 'Han Sans SC';
+      color: white;
+      position:absolute;
+      top: vh(300);
+      font-weight: 900;
+      left: vw(70);
+    }
+    .list{
+      height: vh(500);
+      width: vw(530);
+      position: absolute;
+      border: 1px solid white;
+      top: vh(400);
+      left: vw(70);
+      border-radius: 10px;
+      display: flex;
+      // flex-direction: row;
+      // align-items:start;
+      flex-wrap: wrap;
+      list-style-type: none;
+      overflow: scroll;
+      scrollbar-width: none;
+      .wrapper{
+        height: max-content;
+        width: 100%;
+        margin-left: vw(10);
+        display: flex;
+        flex-wrap:wrap;
+        align-items: flex-start;
+        overflow: scroll;
+        scrollbar-width: none;
+      };
+      .item{
+        height: vh(30);
+        width: vw(240);
+        margin-top: vh(10);
+        margin-right: vw(15);
+        border: 1px solid white;
+        border-radius: 10px;
+        position: relative;
+        z-index: 100;
+        cursor: pointer;
+        // flex-basis: vh(10);
+        .title{
+          height: vh(30);
+          width: vw(40);
+          font-family: 'Han Sans SC';
+          font-size: vh(25);
+          position: absolute;
+          font-weight: 400;
+          top: 0px;
+          left: 0px;
+          line-height: vh(30);
+          color: white;
+        };
+        .name{
+          height: vh(30);
+          width: vw(200);
+          color: white;
+          font-family: 'Han Sans SC';
+          font-size: vh(15);
+          position: absolute;
+          top: 0px;
+          line-height: vh(30);
+          left: vw(10);
+          overflow: scroll;
+          scrollbar-width: none;
+          white-space: nowrap;
+          word-wrap: none;
+        }
+      }
+    }
+    button{
+      height: vh(24);
+      width: vw(80);
+      background-color: darkred;
+      border-radius: 10px;
+      position: absolute;
+      top: vh(950);
+      right: vw(40);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      z-index: 1000;
+    }
+  };
+
+  &.background {
+    width: vw(1240);
+    height: vh(715);
+    background-color: darkred;
+    position: fixed;
+    top: vh(182.5);
+    img{
+      width: vw(1200);
+      height: vh(675);
+      position: absolute;
+      top: vh(30);
+      left: vw(20);
+    }
+  }
+
+  &.shade-background{
+    height: 200%;
+    width: 200%;
+    position: fixed;
+    left: -50%;
+    top: -50%;
+    opacity: 0.1;
+    z-index: 6;
+    img{
+      height: 100%;
+      width: 100%;
+    }
+  };
+  &.decoration {
+    position: absolute;
+    bottom: 0px;
+    left: 0px;
+    height: vh(180);
+    width: vw(1200);
+    .text{
+      position: absolute;
+      bottom: 0px;
+      left: 0px;
+      color: rgba(0,191,255,0.3);
+      font-family: 'Han Sans SC';
+      height: 100%;
+      width: 100%;
+      font-weight: 900;
+      font-size: vh(50);
+    }
+  }
+}

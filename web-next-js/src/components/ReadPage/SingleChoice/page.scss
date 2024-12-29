@@ -1,0 +1,44 @@
+@use '@/app/base.scss' as *;
+
+.SingleChoice {
+  z-index: 1000;
+  &.wrapper {
+    position: relative;
+    left: vw(50);
+    margin-top: vh(20);
+    height: max-content;
+    width: vw(750);
+    border: 1px solid white;
+    border-radius: 20px;
+    .content-item {
+      position: relative;
+      margin-top: vh(20);
+      height: vh(100);
+      width: vw(750);
+      border: 1px solid white;
+      border-radius: 20px;
+      vertical-align: middle;
+      display: flex;
+      flex-direction: row;
+      justify-content: space-around;
+      align-items: center; /* Vertically align items in the center */
+      overflow-y: auto;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+  }
+
+  &.choice{
+    height: vh(30);
+    line-height: vh(30);
+    position: relative;
+    text-align: center;
+    color: white;
+    border: 1px solid white;
+    background-color: #3b3b3b;
+    margin: 0 10px; /* Add margin for spacing */
+    display: flex; /* Use flex to center content */
+    align-items: center; /* Vertically center text */
+    justify-content: center; /* Horizontally center text */
+  }
+}

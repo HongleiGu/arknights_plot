@@ -97,6 +97,11 @@ const router = createRouter({
       path: '/navigate/RawHCL',
       name: '生息演算',
       component: () => import('@/views/GalleryPage.vue')
+    },
+    {
+      path: '/login',
+      name: "登录",
+      component: () => import('@/views/LoginPage.vue')
     }
   ]
 })

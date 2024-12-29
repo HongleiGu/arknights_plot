@@ -1,0 +1,55 @@
+@use '@/app/base.scss' as *;
+
+.LoginPage {
+  p {
+    color: white;
+  }
+  &.page {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+  }
+  &.container {
+    position: absolute;
+    top: vh(290);
+    width: vw(1000);
+    left: vw(460);
+    height: vh(500);
+    color: white;
+    border-radius: 20px;
+    background-color: rgba(0,0,0,0.5);
+  }
+
+  &.form-container {
+    position: absolute;
+    height: vh(400);
+    top: vh(50);
+    width: vw(800);
+    right: vw(100);
+  }
+
+  &.submit-button {
+    width: 100%;
+    background-color: darkred;
+    color:white;
+  }
+
+  &.active-mode {
+    background-color: darkred;
+    color: white;
+  }
+
+  &.mode {
+    text-align: center;
+    border-radius: 10px;
+    border: none;
+  }
+
+  &.background {
+    background: url("/assets/pics/登录页.png");
+    background-size: cover;
+    position: absolute;
+    height: 100%;
+    width: 100%;
+  }
+}

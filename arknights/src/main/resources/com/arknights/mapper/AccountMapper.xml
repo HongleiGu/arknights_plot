@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.arknights.mapper.AccountMapper">
+
+  <!-- login --> 
+
+  <select id="login">
+    SELECT * FROM users WHERE username = #{username} AND password = #{password};
+  </select>
+
+  <!-- register --> 
+
+  <insert id="register">
+    INSERT INTO users
+    <if test="id != NULL">VALUES (#{id},#{username},#{password})</if>
+    <if test="id == NULL">(username, password) VALUES (#{username},#{password})</if>
+  </insert>
+
+  <!-- findUsername --> 
+
+  <select id="findUsername">
+    SELECT COUNT(*) FROM users WHERE username = #{username}
+  </select>
+</mapper>

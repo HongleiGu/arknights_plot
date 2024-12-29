@@ -1,7 +1,12 @@
 <script setup>
 const props = defineProps({
+  dialogId: Number,
+  story: String,
+  chapter: String,
+  dialog: String,
   speaker: String,
-  dialog: String
+  dialog: String,
+  storyType: String
 })
 </script>
 
@@ -39,7 +44,6 @@ const props = defineProps({
   font-size: vh(15);
   line-height: vh(20);
   font-weight: 900;
-  overflow-x: scroll;
   scrollbar-width: none;
   word-wrap: normal;
   word-break:normal;
@@ -60,8 +64,5 @@ const props = defineProps({
   line-height: vh(30);
   font-weight: 900;
   word-wrap:break-word;
-}
-.chosen {
-  color: red;
 }
 </style>

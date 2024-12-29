@@ -1,0 +1,253 @@
+@use '@/app/base.scss' as *;
+
+.ReadPage {
+  &.read-page {
+    height: 100%;
+    width: 100%;
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    z-index: 0;
+  }
+
+  &.new-margin {
+    position: absolute;
+    top: vh(30);
+    left: vw(70);
+    height: vh(30);
+    width: vw(150);
+    background-color: darkred;
+    border: 1px solid white;
+    color: white;
+    font-family: 'Han Sans SC';
+    font-weight: 900;
+    font-size: vh(20);
+    line-height: vh(20);
+    border-radius: 20px;
+  }
+
+  &.jump-to-place {
+    position: absolute;
+    top: vh(30);
+    left: vw(250);
+    height: vh(30);
+    width: vw(150);
+    background-color: darkred;
+    border: 1px solid white;
+    color: white;
+    font-family: 'Han Sans SC';
+    font-weight: 900;
+    font-size: vh(20);
+    line-height: vh(20);
+    border-radius: 20px;
+  }
+
+  &.save {
+    position: absolute;
+    top: vh(30);
+    left: vw(430);
+    height: vh(30);
+    width: vw(150);
+    background-color: darkred;
+    border: 1px solid white;
+    color: white;
+    font-family: 'Han Sans SC';
+    font-weight: 900;
+    font-size: vh(20);
+    line-height: vh(20);
+    border-radius: 20px;
+  }
+
+
+  &.background {
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0px;
+    left: 0px;
+  }
+
+  &.content-wrapper {
+    position: absolute;
+    top: vh(215);
+    left: vw(200);
+    height: vh(800);
+    width: vw(1000);
+    border-radius: 20px 0px 0px 20px;
+    background-color: rgba(0,0,0,0.7);
+    border: 1px solid white;
+    .title {
+      position: absolute;
+      top: vh(78);
+      left: vw(70);
+      width: vw(850);
+      height: vh(50);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(30);
+    };
+    .decoration {
+      position: absolute;
+      top: vh(125);
+      left: vw(70);
+      width: vw(850);
+      height: vh(20);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(15);
+    };
+    .content {
+      position: absolute;
+      top: vh(155);
+      left: vw(70);
+      height: vh(600);
+      width: vw(850);
+      background-color: rgba(0,0,0,0.7);
+      border: 1px solid white;
+      border-radius: 20px;
+      overflow-y: scroll;
+      scrollbar-width: none;
+    }
+  
+  }
+
+  .margin-wrapper {
+    position: absolute;
+    top: vh(215);
+    left: vw(1210);
+    height: vh(800);
+    width: vh(490);
+    border-radius: 0px 20px 20px 0px;
+    background-color: rgba(0,0,0,0.7);
+    border: 1px solid white;
+    .title{
+      position: absolute;
+      top: vh(78);
+      left: vw(45);
+      width: vw(400);
+      height: vh(50);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(30);
+    };
+    .decoration{
+      position: absolute;
+      top: vh(125);
+      left: vw(45);
+      width: vw(400);
+      height: vh(20);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(15);
+    }
+    .margin{
+      position: absolute;
+      top: vh(155);
+      left: vw(45);
+      height: vh(600);
+      width: vw(400);
+      border-radius: 20px;
+      border: 1px solid white;
+      background-color: rgba(0,0,0,0);
+      overflow-y: scroll;
+      scrollbar-width: none;
+    }
+  }
+
+  // :deep(.antd-pagination.is-background .el-pager li:not(.is-disabled).is-active) {
+  //   background-color: darkred !important; //修改默认的背景色
+  // }
+}
+
+.pagination {
+  position: absolute;
+  bottom: 0px;
+  width: 100%;
+  height: max-content;
+  justify-content: center;
+  display: flex;
+  border: 1px solid white;
+  .antd-pagination {
+    // justify-content: center;
+    color: white;
+    position: absolute;
+    height: 100%;
+    width: 100%;
+  }
+}
+
+.ant-pagination-item {
+  border:1px solid darkred;
+  background-color: white;
+  color: white;
+  a{
+    background-color: white;
+    color: white;
+    border-radius: 5px
+  }
+ }
+ 
+.ant-pagination-item-active{
+  border:1px solid white;
+  background-color: transparent;
+  color: white !important;
+  a{
+      background-color: darkred;
+      color: white !important;
+  }
+  
+}
+ 
+.ant-pagination-prev .ant-pagination-item-link{
+  border:1px solid white;
+  background-color: transparent;
+    color: white;
+  a{
+      color: white;
+  }  
+}
+ 
+.ant-pagination-next .ant-pagination-item-link{
+  border:1px solid white;
+  background-color: transparent;
+  color: white;
+  a{
+      color: white;
+  }  
+}
+ 
+.ant-pagination-item:hover{
+  border:1px solid white;
+   background-color: transparent;
+  a{
+      color: darkred;
+  } 
+}
+.ant-pagination-item-link:hover{
+  border-color: darkred;
+  span{
+      color: darkred;
+  } 
+}
+.ant-select:not(.ant-select-disabled):hover .ant-select-selector{
+  border-color: darkred;
+}
+.ant-pagination-options-quick-jumper input:hover{
+  border-color: darkred;
+}
+.ant-select-focused.ant-select-single:not(.ant-select-customize-input) .ant-select-selector{
+  border-color: darkred;
+}
+ 
+.ant-pagination-options-quick-jumper {
+  color: white;
+  input {
+     border:1px solid white;
+    background-color: transparent;
+    color: white;
+  }
+}

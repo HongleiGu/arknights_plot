@@ -1,0 +1,49 @@
+@use '@/app/base.scss' as *;
+
+.SingleDialog {
+  z-index: 1000;
+  &.content-item {
+    position: relative;
+    left: vw(50);
+    margin-top: vh(20);
+    height: vh(100);
+    width: vw(750);
+    border: 1px solid white;
+    border-radius: 20px;
+    vertical-align: middle;
+    display: flex;
+    .speaker{
+      position: absolute;
+      left: vw(40);
+      // top: vh(40);
+      top:50%;
+      transform:translateY(-50%);
+      height: max-content;
+      width: vw(150);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-size: vh(15);
+      line-height: vh(20);
+      font-weight: 900;
+      scrollbar-width: none;
+      word-wrap: normal;
+      word-break:normal;
+      text-align: center;
+    };
+    .dialog{
+      position: relative;
+      left: vw(200);
+      // top: vh(5);
+      top:50%;
+      transform:translateY(-50%);
+      height: max-content;
+      width: vw(500);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-size: vh(20);
+      line-height: vh(30);
+      font-weight: 900;
+      word-wrap:break-word;
+    }
+  }
+}

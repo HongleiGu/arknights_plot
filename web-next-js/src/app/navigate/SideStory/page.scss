@@ -1,0 +1,138 @@
+@use '@/app/base.scss' as *;
+
+.sideStoryPage {
+  &.second-nav-page{
+    z-index: 0;
+    overflow: hidden;
+  };
+  &.sidebar{
+    height: 100%;
+    position: fixed;
+    width: vw(670);
+    top: 0px;
+    right: 0px;
+    z-index: 6;
+    .toc-wrapper{
+      height: 100%;
+      position: absolute;
+      top: 0px;
+      right: 0px;
+      width: vw(370);
+      background-color: #000;
+      z-index: 7;
+      .top-arrow{
+        transform: rotate(180deg);
+        position: absolute;
+        top: vh(50);
+        right: vw(70);
+        height: vh(100);
+        width: vw(100);
+        z-index: 8;
+        img{
+          height: 100%;
+          width: 100%;
+        };
+      };
+      .down-arrow{
+        position: absolute;
+        bottom: vh(50);
+        right: vw(70);
+        height: vh(100);
+        width: vw(100);
+        z-index: 8;
+      };
+      img{
+        height: 100%;
+        width: 100%;
+      };
+    };
+  };
+
+  &.items {
+    height: vh(750);
+    position: absolute;
+    top: vh(154);
+    right: vw(140);
+    width: vw(320);
+    overflow: scroll;
+    scrollbar-width: none;
+  };
+
+  &.display{
+    position: fixed;
+    top: vh(100);
+    left: vw(-100);
+    height: 100%;
+    width: 100%;
+    z-index: -1;
+    opacity: 1;
+  };
+
+  &.info {
+    width: 100%;
+    height: vh(200);
+    background-color: rgba(0,0,0,0.5);
+    position: fixed;
+    top: vh(766);
+    .underline{
+      width: vw(800);
+      background-color: darkred;
+      height: vh(10);
+      position: absolute;
+      top: 50%;
+      transform: translateY(vh(5));
+    };
+    .text-ch{
+      width: 100%;
+      height: vh(50);
+      position: absolute;
+      top: vh(30);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      margin-left: vw(10);
+      line-height: vh(50);
+      font-size: vh(50);
+    };
+    .text-en{
+      width: 100%;
+      height: vh(10);
+      position: absolute;
+      top: 50%;
+      margin-left: vw(10);
+      transform: translateY(vh(-5));
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      line-height: vh(10);
+      font-size: vh(10);
+    };
+    .text-info{
+      width: vw(600);
+      height: vh(100);
+      position: absolute;
+      top: 50%;
+      left: vw(800);
+      transform: translateY(vh(-5));
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      line-height: vh(10);
+      font-size: vh(10);
+    };
+    button {
+      position: absolute;
+      height: vh(30);
+      width: vw(60);
+      background-color: darkred;
+      border-radius: 10px;
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(10);
+      line-height: vh(10);
+      top: vh(150);
+      left: vw(10);
+    }
+  };
+}

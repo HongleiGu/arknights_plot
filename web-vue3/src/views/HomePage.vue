@@ -1,13 +1,14 @@
 <script setup>
 import router from '@/router';
+// import { useLoginStore } from '@/stores/login';
 import { onMounted } from 'vue'
 
 onMounted(() => {
     const background = document.querySelector(".background")
     background.addEventListener("scroll",()=>{
-      console.log(background.scrollTop)
-      console.log(window.innerHeight)
       if (background.scrollTop >= window.innerHeight){
+        console.log(background.scrollTop)
+        console.log(window.innerHeight)
         router.push("/navigate")
       }
     })

@@ -1,5 +1,16 @@
-<script setup>
+<script>
 import { RouterLink, RouterView } from 'vue-router'
+import { useLoginStore } from './stores/login.js';
+import { onMounted } from 'vue'
+// import { checkLoginState } from './utils/api';
+
+export default {
+  data() {
+    return {
+      store: useLoginStore()
+    }
+  }
+}
 </script>
 
 <template>
@@ -33,6 +44,13 @@ import { RouterLink, RouterView } from 'vue-router'
         </div>
       </RouterLink>
     </div>
+    <RouterLink to="/login" class="routerlink" id="login">
+      <div class="routerlink-inner-wrapper">
+        <img src="" alt="" id="user-pic">
+        <p class="routerlink-ch" v-if="store.username!='' && store.username!=undefined" :username="store.username">当前用户:{{store.username}}</p>
+        <p class="routerlink-ch" v-else>登录/注册</p>
+      </div>
+    </RouterLink>
   </header>
   <RouterView class="routerview"/>
 </template>
@@ -74,6 +92,22 @@ header {
   border-left: 1px solid white;
 };
 
+#login {
+  position: absolute;
+  top: vh(50);
+  left: vw(250);
+  height: vh(100);
+  width: vw(600);
+  left: vw(1550);
+  justify-content: center;
+}
+
+#user-pic {
+  height: vh(50);
+  width: vw(50);
+  background-color: white;
+}
+
 .router-link-wrapper .routerlink {
   height: 100%;
   width: 25%;
@@ -87,7 +121,7 @@ header {
   top: 0px;
 };
 
-.router-link-wrapper .routerlink .routerlink-inner-wrapper .routerlink-en{
+.routerlink-en{
   height: vh(50);
   width: vw(208.5);
   color: white;
@@ -101,7 +135,7 @@ header {
   letter-spacing: -8px;
 }
 
-.router-link-wrapper .routerlink .routerlink-inner-wrapper .routerlink-ch{
+.routerlink-ch{
   height: vh(41);
   width: vw(97.5);
   color: white;

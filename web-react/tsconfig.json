@@ -1,0 +1,15 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ],
+  "compilerOptions": {
+    "baseUrl": "src", // Set the base URL to the src folder
+    "paths": {
+      "@/*": ["*"], // Create an alias for "src/*"
+      "@components/*": ["components/*"], // Example for a specific alias
+      "@assets/*": ["assets/*"] // Example for assets
+    },
+  }
+}
