@@ -24,18 +24,24 @@ export async function GET(req: NextRequest) {
       message: "JWT is valid",
       user: {
         name: session.user.name,
-        // You can include other user details as needed
+        // Include other user details as needed
       } as User,
     }, { status: 200 });
   }
 
-  // Set CORS headers
+  // Add CORS headers if a response has been created
   if (response) {
     response.headers.append("Access-Control-Allow-Credentials", "true");
-    response.headers.append("Access-Control-Allow-Origin", "*");
-    response.headers.append("Access-Control-Allow-Methods", "GET,DELETE,PATCH,POST,PUT");
+    
+    // Get the origin from the request headers
+    const origin = req.headers.get('origin'); // Use req instead of response
+    if (origin) {
+      response.headers.append("Access-Control-Allow-Origin", origin);
+    }
+    
+    response.headers.append("Access-Control-Allow-Methods", "GET, DELETE, PATCH, POST, PUT");
     response.headers.append("Access-Control-Allow-Headers", "*");
   }
 
-  return response; // Return the final response
+  return response ?? NextResponse.json({ message: "No response generated" }, { status: 500 });
 }
