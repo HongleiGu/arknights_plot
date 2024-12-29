@@ -1,38 +1,17 @@
 import NextAuth from "next-auth";
+// import CredentialsProvider from "next-auth/providers/credentials";
+// import { compare } from "bcryptjs";
+// import { findUsername } from "@/utils/api"; // Your custom function to find users
+// import type { User as NextAuthUser } from "next-auth";
 import { NextApiRequest, NextApiResponse } from "next";
 import { authOptions } from "./options";
 
-// Function to set CORS headers
-export const setCorsHeaders = (res: NextApiResponse) => {
-  res.setHeader('Access-Control-Allow-Origin', '*'); // Replace with your allowed origin
-  res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-};
-
 // Handling the POST request
 export async function POST(req: NextApiRequest, res: NextApiResponse) {
-  setCorsHeaders(res);
-
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end(); // End the response for preflight requests
-    return;
-  }
-
-  // Call NextAuth for POST
-  return NextAuth(req, res, authOptions);
+  return NextAuth(req, res, authOptions); // Pass both req and res
 }
 
-// Handling the GET request
+// Export the GET method
 export async function GET(req: NextApiRequest, res: NextApiResponse) {
-  setCorsHeaders(res);
-
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end(); // End the response for preflight requests
-    return;
-  }
-
-  // Call NextAuth for GET
-  return NextAuth(req, res, authOptions);
+  return NextAuth(req, res, authOptions); // Call NextAuth to handle the GET request
 }
