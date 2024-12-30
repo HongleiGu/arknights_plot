@@ -6,6 +6,7 @@ import Link from "next/link";
 import './globals.css'; // Your global styles
 import "./page.scss"
 import useLoginStore from "./store/login";
+import { signOut } from "next-auth/react";
 
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -71,6 +72,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             }
           </div>
         </Link>
+        <div className="base logout">
+          <a className="base routerlink-ch"
+            onClick={async () => {store.setUser(null); await signOut({ callbackUrl: `${process.env.NEXT_PUBLIC_URL}/home` }); store.verifyJwt()}}
+          >登出</a>
+        </div>
       </header>
       {/* <RouterView className="base routerview"/> */}
       <div className="base routerview">

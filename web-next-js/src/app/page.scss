@@ -60,6 +60,15 @@ header.base {
     background-color: white;
   }
 
+  &.logout {
+    position: absolute;
+    top: vh(50);
+    left: vw(250);
+    height: vh(100);
+    width: vw(600);
+    left: vw(1850);
+    justify-content: center;
+  }
   // &.router-link-wrapper .routerlink {
   //   height: 100%;
   //   width: 25%;
@@ -86,6 +95,7 @@ header.base {
         top: 0px;
       }
     }
+
   };
 
   &.routerlink-en{

@@ -60,11 +60,11 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
-    async signIn({ user }) {
-      // alert("Sign in" + user)
-      // alert(password)
-      console.log("signin")
-      return true
-    },
+    // async signIn({ user }) {
+    //   // alert("Sign in" + user)
+    //   // alert(password)
+    //   console.log("signin")
+    //   return true
+    // },
   },
 };
