@@ -28,9 +28,12 @@ export default function Page() {
     // Use NextAuth's signIn method for authentication
       const result = await signIn('credentials', {
         redirect: false,
-        username,
-        password,
+        username: username,
+        password: password,
       });
+      // alert(username)
+      // alert(password)
+      // alert(result)
     
       if (result == undefined) {
         setMessage("invalid result")

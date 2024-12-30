@@ -10,16 +10,20 @@ export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     CredentialsProvider({
+      id: "credentials",
+      name: "credentials",
       credentials: {
         username: { label: "Username", type: "text", placeholder: "Enter your username" },
         password: { label: "Password", type: "password", placeholder: "Enter your password" },
       },
       async authorize(credentials) {
+        // alert(credentials)
         if (!credentials) {
           throw new Error("Credentials not provided");
         }
 
         const user = await findUsername(credentials.username);
+        // alert(user)
         if (!user || user.length === 0) {
           throw new Error("No user found with the provided username");
         }
@@ -55,6 +59,12 @@ export const authOptions: NextAuthOptions = {
         session.user.name = token.name as string; // Add user info to session
       }
       return session;
+    },
+    async signIn({ user }) {
+      // alert("Sign in" + user)
+      // alert(password)
+      console.log("signin")
+      return true
     },
   },
 };

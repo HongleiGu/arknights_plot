@@ -8,7 +8,7 @@ export async function POST(request: Request) {
 
   // Check if the user already exists
   // const existingUser = await sql`SELECT * FROM users WHERE username = ${username}`;
-  console.log(username)
+  // console.log(username)
   const existingUser = await findUsername(username)
   const rowCount = existingUser.length
   if (rowCount > 0) {
