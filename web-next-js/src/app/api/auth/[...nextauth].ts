@@ -8,12 +8,12 @@ import { authOptions } from "./options";
 
 // Handling the POST request
 export async function POST(req: NextApiRequest, res: NextApiResponse) {
-  console.log("GET request received");
+  // console.log("GET request received");
   return NextAuth(req, res, authOptions); // Pass both req and res
 }
 
 // Export the GET method
 export async function GET(req: NextApiRequest, res: NextApiResponse) {
-  console.log("GET request received");
+  // console.log("GET request received");
   return NextAuth(req, res, authOptions); // Call NextAuth to handle the GET request
 }
