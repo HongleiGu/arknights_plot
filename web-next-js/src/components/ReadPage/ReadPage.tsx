@@ -293,6 +293,7 @@ export default function Page() {
             size="small"
             total={plotNum}
             onChange={onDialogPageChange}
+            onShowSizeChange={onDialogPageChange}
           />
         </div>
     </div>
@@ -323,6 +324,7 @@ export default function Page() {
             size="small"
             total={commentNum}
             onChange={onMarginPageChange}
+            onShowSizeChange={onMarginPageChange}
           />
         </div>
       </div>
