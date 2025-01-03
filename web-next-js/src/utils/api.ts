@@ -241,3 +241,18 @@ export async function findUsername(username: string): Promise<UserQuery[]> {
   return result.rows.map(it => convertKeysToCamelCase(it) as UserQuery)
   // return result.rows.map(it => convertKeysToCamelCase(it) as User) // Return the count as a number
 }
+
+export async function getCommentTag(commentId: number): Promise<string[] | null> {
+  try {
+    const result = await sql`SELECT * FROM commentTag WHERE comment_id = ${commentId}`;
+    // Check if any rows were returned
+    if (result.rows.length > 0) {
+      // Assuming the desired column is 'tag', adjust as necessary
+      return result.rows.map(it => it.tag as string); 
+    }
+    return null; // Return null if no tag is found
+  } catch (error) {
+    console.error('Error fetching comment tag:', error);
+    throw new Error('Failed to fetch comment tag');
+  }
+}

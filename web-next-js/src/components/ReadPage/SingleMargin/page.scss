@@ -31,29 +31,69 @@
       font-weight: 900;
       font-size: vh(15);
       line-height: vh(15);
-      word-wrap:break-word;
+      // overflow-x: scroll;
     };
+    .tag-title {
+      position: absolute;
+      top: vh(40);
+      left: vw(10);
+      height: vh(20);
+      width: 100%;
+      color: white;
+      font-family: 'Han Sans SC';
+      font-weight: 900;
+      font-size: vh(15);
+      line-height: vh(15);
+      word-wrap:break-word;
+    }
     .content {
       position: absolute;
       top: vh(15);
       left: vw(110);
       height: vh(80);
       width: vw(180);
+      display: flex;
+      flex-direction: column;
+      justify-content: right;
+      overflow: scroll;
+      scrollbar-width: none;
       .content-item {
-        position: absolute;
-        top: 0px;
-        left: 0px;
         margin: 0px;
-        height: 100%;
+        height: max-content;
         width: 100%;
         color: white;
         font-size: vh(15);
         font-family: 'Han Sans SC';
         line-height: vh(15);
         word-wrap: break-word;
-        overflow-y: scroll;
-        scrollbar-width: none;
         background-color: #000;
+        margin-bottom: 30px;
+      }
+      .text {
+        color: white;
+        font-family: 'Han Sans SC';
+        font-size: vh(15);
+        font-weight: 700;
+      }
+      .tags {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        .tag {
+          background-color: darkred;
+          border-radius: 10px;
+          margin: 5px;
+          span {
+            height: 100%;
+            color: white;
+            font-size: vh(15);
+            width: max-content;
+            font-family: 'Han Sans SC';
+            white-space: nowrap;
+            margin: 5px
+          }
+        }
       }
     };
     .delete {

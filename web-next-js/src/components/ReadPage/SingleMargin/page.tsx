@@ -1,6 +1,11 @@
 import { Comment } from "@/utils/dataTypes"
 import { useEffect, useRef, useState } from "react"
 import "./page.scss"
+import { getCommentTag } from "@/utils/api"
+
+// import { Select } from 'antd';
+
+// const { Option } = Select;
 
 export default function Page(props: {
   comment: Comment,
@@ -11,6 +16,7 @@ export default function Page(props: {
 }) {
   
   const [disabled, setDisabled] = useState(false)
+  const [tag, setTag] = useState<string[] | null>([])
 
   const contentSpan = useRef<HTMLSpanElement>(null)
   const contentTextarea = useRef<HTMLTextAreaElement>(null)
@@ -38,7 +44,11 @@ export default function Page(props: {
   }, [disabled])
 
   useEffect(() => {
+    const helper = async () => {
+      setTag(await getCommentTag(props.comment.commentId))
+    }
     setDisabled(true)
+    helper()
   }, [])
 
   return (
@@ -50,6 +60,7 @@ export default function Page(props: {
         <div className="SingleMargin margin-item">
         <div className="SingleMargin info">
           <span className="SingleMargin username-title">用户:{props.comment.username}</span>
+          {/* <span className="SingleMargin tag-title">标签:</span> */}
         </div>
         <div className="SingleMargin content">
           {disabled ?
@@ -68,6 +79,14 @@ export default function Page(props: {
               onChange={(e) => setMessage(e.target.value)}
             >
             </textarea>}
+            <span className="text">标签:</span>
+            <div className="tags">
+              {tag?.map(it => 
+                <div className="tag" key={it}>
+                  <span>{it}</span>
+                </div>
+              )}
+            </div>
         </div>
         <button className="SingleMargin delete" onClick={deleteThis}>删除</button>
         <button className="SingleMargin edit" onClick={editThis}>编辑</button>
