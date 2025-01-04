@@ -57,10 +57,9 @@ export default function Page(props: {
   return (
       <div 
         className="SingleMargin"
-        id={props.id}
         onClick={() => props.chooseBlock(null, props.id)}
       >
-        <div className="SingleMargin margin-item">
+        <div className="SingleMargin margin-item" id={props.id}>
         <div className="SingleMargin info">
           <span className="SingleMargin username-title">用户:{props.comment.username}</span>
           {/* <span className="SingleMargin tag-title">标签:</span> */}
