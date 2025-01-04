@@ -1,10 +1,11 @@
-import { Comment } from "@/utils/dataTypes"
+import { Comment, CommentTag } from "@/utils/dataTypes"
 import { useEffect, useRef, useState } from "react"
 import "./page.scss"
-import { addCommentTag, getCommentTag } from "@/utils/api"
-import { Input } from 'antd';
-
-// import { Select } from 'antd';
+import ClosableTagGroup from '@/components/ClosableTagGroup/page'
+import { addCommentTag, deleteCommentTag, getCommentTag } from "@/utils/api"
+// import { Input } from 'antd';
+// 
+// import { Tag } from 'antd';
 
 // const { Option } = Select;
 
@@ -17,9 +18,9 @@ export default function Page(props: {
 }) {
   
   const [disabled, setDisabled] = useState(false)
-  const [tag, setTag] = useState<string[] | null>([])
-  const [addingTag, setAddingTag] = useState<boolean>(false)
-  const [addingTagContent, setAddingTagContent] = useState<string>("")
+  const [tag, setTag] = useState<CommentTag[]>([])
+  // const [addingTag, setAddingTag] = useState<boolean>(false)
+  // const [addingTagContent, setAddingTagContent] = useState<string>("")
 
   const contentSpan = useRef<HTMLSpanElement>(null)
   const contentTextarea = useRef<HTMLTextAreaElement>(null)
@@ -52,7 +53,7 @@ export default function Page(props: {
     }
     setDisabled(true)
     helper()
-  }, [props.comment.commentId, addingTag])
+  }, [props.comment.commentId])
 
   return (
       <div 
@@ -82,17 +83,24 @@ export default function Page(props: {
             >
             </textarea>}
             <span className="text">标签:</span>
-            <div className="tags">
+            <ClosableTagGroup
+              initialTags={tag}
+              onClose={deleteCommentTag}
+              onInputComfirm={addCommentTag}
+              refresh={async () => {
+                setTag(await getCommentTag(props.comment.commentId))
+              }}
+            />
+            {/* <div className="tags">
               {tag?.map((it,index) => 
-                <div className="tag" key={index}>
-                  <span>{it}</span>
-                </div>
+                <Tag closable key={index}>{it.tag}</Tag>
               )}
               <div 
                 className="tag"
               >
                 {addingTag ?
                 <Input
+                  style={{width:78}}
                   placeholder="标签"
                   value={addingTagContent}
                   onChange={e => setAddingTagContent(e.target.value)}
@@ -100,7 +108,7 @@ export default function Page(props: {
                 />
                 :<span onClick={() => setAddingTag(true)}>+</span>}
               </div>
-            </div>
+            </div> */}
         </div>
         <button className="SingleMargin delete" onClick={deleteThis}>删除</button>
         <button className="SingleMargin edit" onClick={editThis}>编辑</button>

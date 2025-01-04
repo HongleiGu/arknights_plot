@@ -131,6 +131,11 @@ export interface UserQuery {
   password: string
 }
 
+export interface CommentTag {
+  id: number,
+  commentId: number,
+  tag: string
+}
 
 
 export const emptyImage: Images = {
@@ -143,3 +148,4 @@ export const emptyImage: Images = {
   type: '',            // Empty string for the type
   shift: 0,            // Placeholder value for shift
 };
+

@@ -5,7 +5,7 @@
 
 // import { z } from 'zod';
 import { sql } from '@vercel/postgres';
-import { Choice, Comment, Images, Outcome, Plot, UserQuery} from './dataTypes';
+import { Choice, Comment, CommentTag, Images, Outcome, Plot, UserQuery} from './dataTypes';
 import { User } from 'next-auth';
 import { convertKeysToCamelCase } from '.';
 // import { Plot, Choice, Comment, Outcome, Image } from './dataTypes';
@@ -242,15 +242,15 @@ export async function findUsername(username: string): Promise<UserQuery[]> {
   // return result.rows.map(it => convertKeysToCamelCase(it) as User) // Return the count as a number
 }
 
-export async function getCommentTag(commentId: number): Promise<string[] | null> {
+export async function getCommentTag(commentId: number): Promise<CommentTag[]> {
   try {
     const result = await sql`SELECT * FROM commentTag WHERE comment_id = ${commentId}`;
     // Check if any rows were returned
     if (result.rows.length > 0) {
       // Assuming the desired column is 'tag', adjust as necessary
-      return result.rows.map(it => it.tag as string); 
+      return result.rows.map(it => convertKeysToCamelCase(it) as CommentTag); 
     }
-    return null; // Return null if no tag is found
+    return []; // Return null if no tag is found
   } catch (error) {
     console.error('Error fetching comment tag:', error);
     throw new Error('Failed to fetch comment tag');
@@ -260,4 +260,8 @@ export async function getCommentTag(commentId: number): Promise<string[] | null>
 export async function addCommentTag(tag: string, commentId: number): Promise<void> {
   // console.log(`INSERT INTO commentTag (comment_id, tag) VALUES (${commentId}, ${tag})`);
   await sql`INSERT INTO commenttag (comment_id, tag) VALUES (${commentId}, ${tag})`;
+}
+
+export async function deleteCommentTag(id: number, commentId: number): Promise<void> {
+  await sql`DELETE FROM commenttag WHERE comment_id = ${commentId} AND id = ${id}`
 }
