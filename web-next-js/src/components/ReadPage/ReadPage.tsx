@@ -10,6 +10,7 @@ import SingleDialog from "./SingleDialog/page"
 import SingleMargin from "./SingleMargin/page"
 // import SingleOutcome from "./SingleDialog/page"
 import SingleChoice from "./SingleChoice/page"
+import CorrelationPanel from "../CorrelationPanel/page"
 import { Pagination } from "antd";
 import "./ReadPage.scss"
 
@@ -45,6 +46,8 @@ export default function Page() {
 
   const [plotNum, setPlotNum] = useState<number>(0); 
   const [commentNum, setCommentNum] = useState<number>(0);
+
+  const [showPanel, setShowPanel] = useState<Comment | null>(null);
 
   // const displayPlots = ref(true) // 仅仅是为了让v-for更新
   // const displayComments = ref(true) // 仅仅是为了让v-for更新
@@ -255,7 +258,7 @@ export default function Page() {
   }
 
   return (
-    <div className="ReadPage read-page" onClick={() => console.log("read-page")}>
+    <div className="ReadPage read-page">
       <Image src={"/assets/pics/阅读页.png"} className="ReadPage background" alt="test" width={0} height={0}/>
       <div className="ReadPage content-wrapper" onClick={() => console.log("content-wrapper")}>
         <button className="ReadPage new-margin" onClick={() => clickAddComment()}>新建批注</button>
@@ -296,7 +299,7 @@ export default function Page() {
             onShowSizeChange={onDialogPageChange}
           />
         </div>
-    </div>
+      </div>
       <div className="ReadPage margin-wrapper">
         <span className="ReadPage title">批注</span>
         <span className="ReadPage decoration">BOOKMARKS</span>
@@ -308,7 +311,8 @@ export default function Page() {
                 id={'margin'+item.commentId}
                 deleteComments={deleteComment}
                 editComments={editComment}
-                chooseBlock={chooseBlock}>
+                chooseBlock={chooseBlock}
+                triggerCorrelationPanel={setShowPanel}>
               </SingleMargin>
             )
           }
@@ -328,6 +332,10 @@ export default function Page() {
           />
         </div>
       </div>
+      <CorrelationPanel 
+        comment={showPanel}
+        handleClose={() => {console.log("close");setShowPanel(null)}}
+      />
     </div>
   )
 }

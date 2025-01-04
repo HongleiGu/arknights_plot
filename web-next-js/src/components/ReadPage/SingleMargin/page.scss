@@ -1,6 +1,7 @@
 @use '@/app/base.scss' as *;
 
 .SingleMargin {
+  position: relative;
   z-index: 1000;
   &.margin-item {
     position: relative;

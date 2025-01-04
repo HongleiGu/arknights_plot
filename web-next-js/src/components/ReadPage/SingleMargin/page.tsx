@@ -11,9 +11,10 @@ import { addCommentTag, deleteCommentTag, getCommentTag } from "@/utils/api"
 
 export default function Page(props: {
   comment: Comment,
-  deleteComments: (commentId: number) => void,
-  editComments: (commentId: number, commentContent: string) => void,
-  chooseBlock: (plotId: string | null, commentId: string | null) => void
+  deleteComments?: (commentId: number) => void,
+  editComments?: (commentId: number, commentContent: string) => void,
+  chooseBlock?: (plotId: string | null, commentId: string | null) => void
+  triggerCorrelationPanel?: (comment: Comment) => void,
   id: string
 }) {
   
@@ -28,7 +29,9 @@ export default function Page(props: {
 
   // const emit = defineEmits(['deleteComments', 'editComments','chooseBlock'])
   const deleteThis = () => {
-    props.deleteComments(props.comment.commentId)
+    if (props.deleteComments != undefined) {
+      props.deleteComments(props.comment.commentId)
+    }
   }
 
   const editThis = () => {
@@ -43,7 +46,9 @@ export default function Page(props: {
     console.log(disabled)
     if (disabled === true){
       console.log(message)
-      props.editComments(props.comment.commentId, message)
+      if (props.editComments != undefined) {
+        props.editComments(props.comment.commentId, message)
+      }
     }
   }, [disabled])
 
@@ -58,7 +63,7 @@ export default function Page(props: {
   return (
       <div 
         className="SingleMargin"
-        onClick={() => props.chooseBlock(null, props.id)}
+        onClick={props.chooseBlock ? () => props.chooseBlock!(null, props.id): () => {}}
       >
         <div className="SingleMargin margin-item" id={props.id}>
         <div className="SingleMargin info">
@@ -110,9 +115,9 @@ export default function Page(props: {
               </div>
             </div> */}
         </div>
-        <button className="SingleMargin delete" onClick={deleteThis}>删除</button>
-        <button className="SingleMargin edit" onClick={editThis}>编辑</button>
-        {/* <button className="SingleMargin add-answer" onClick={addAnswer}>添加关联</button> */}
+        {props.deleteComments ? <button className="SingleMargin delete" onClick={deleteThis}>删除</button> : null}
+        {props.editComments ? <button className="SingleMargin edit" onClick={editThis}>编辑</button> : null}
+        {props.triggerCorrelationPanel ? <button className="SingleMargin add-answer" onClick={() => {console.log(props.triggerCorrelationPanel);props.triggerCorrelationPanel!(props.comment)}}>添加关联</button> : null}
       </div>
     </div>
   )
