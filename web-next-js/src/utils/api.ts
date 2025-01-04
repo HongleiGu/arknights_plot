@@ -265,3 +265,22 @@ export async function addCommentTag(tag: string, commentId: number): Promise<voi
 export async function deleteCommentTag(id: number, commentId: number): Promise<void> {
   await sql`DELETE FROM commenttag WHERE comment_id = ${commentId} AND id = ${id}`
 }
+
+export async function getSpecificDialog(
+  story: string,
+  chapter: string,
+  dialogId: number,
+): Promise<Plot | null> {
+  const result = await sql`
+    SELECT * FROM plots 
+    WHERE story = ${story} 
+    AND chapter = ${chapter} 
+    AND dialog_id = ${dialogId}
+  `;
+  // console.log(result.rows[0])
+  // console.log(result.rows.map(it => convertKeysToCamelCase(it) as Plot))
+  if (result.rows.length <= 0) {
+    return null;
+  }
+  return convertKeysToCamelCase(result.rows[0] as Plot)
+}

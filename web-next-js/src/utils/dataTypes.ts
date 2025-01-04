@@ -95,7 +95,7 @@ export interface Outcome {
 
 // Interface for Comment
 export interface Comment {
-  dialogId?: number,
+  dialogId: number,
   commentId: number,
   // decisionId: number,
   outcomeId?: number,

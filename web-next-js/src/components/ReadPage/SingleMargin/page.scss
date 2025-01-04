@@ -99,6 +99,20 @@
         }
       }
     };
+    .showDialog {
+      position: absolute;
+      top: vh(50);
+      left: vw(10);
+      height: vh(25);
+      width: vw(85);
+      color: white;
+      font-family: 'Han Sans SC';
+      font-size: vh(15);
+      background-color: darkred;
+      line-height: vh(15);
+      border: 1px solid white;
+      border-radius: 10px;
+    }
     .delete {
       position: absolute;
       top: vh(100);
@@ -156,4 +170,19 @@
   //   line-height: vh(15);
   //   word-wrap:break-word;
   // }
+}
+
+
+.ant-popover-inner-content {
+  z-index: 1000;
+  position: relative;
+  background-color: #000;
+  color: white;
+  border-radius: 20px;
+  &>.SingleDialog.content-item{
+    margin: none;
+    padding: 0px;
+    // border: 0px;
+    left: 0px;
+  }
 }

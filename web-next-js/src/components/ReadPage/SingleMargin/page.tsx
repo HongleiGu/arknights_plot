@@ -1,8 +1,10 @@
-import { Comment, CommentTag } from "@/utils/dataTypes"
+import { Comment, CommentTag, Plot } from "@/utils/dataTypes"
 import { useEffect, useRef, useState } from "react"
 import "./page.scss"
 import ClosableTagGroup from '@/components/ClosableTagGroup/page'
-import { addCommentTag, deleteCommentTag, getCommentTag } from "@/utils/api"
+import { addCommentTag, deleteCommentTag, getCommentTag, getSpecificDialog } from "@/utils/api"
+import { Popover } from "antd"
+import SingleDialog from "../SingleDialog/page"
 // import { Input } from 'antd';
 // 
 // import { Tag } from 'antd';
@@ -26,6 +28,8 @@ export default function Page(props: {
   const contentSpan = useRef<HTMLSpanElement>(null)
   const contentTextarea = useRef<HTMLTextAreaElement>(null)
   const [message, setMessage] = useState<string>(props.comment.commentContent);
+
+  const [dialog, setDialog] = useState<Plot | null>(null)
 
   // const emit = defineEmits(['deleteComments', 'editComments','chooseBlock'])
   const deleteThis = () => {
@@ -115,6 +119,19 @@ export default function Page(props: {
               </div>
             </div> */}
         </div>
+        <Popover 
+          content={
+            dialog ? <SingleDialog
+              id=""
+              plot={dialog!}
+            /> : <span>loading ...</span>
+          } 
+          onOpenChange={dialog ? () => console.log(dialog) : async () => setDialog(await getSpecificDialog(props.comment.story, props.comment.chapter, props.comment.dialogId))}
+          title="Title"
+          className="SingleDialog showDialog"
+        >
+          <button>显示原文</button>
+        </Popover>
         {props.deleteComments ? <button className="SingleMargin delete" onClick={deleteThis}>删除</button> : null}
         {props.editComments ? <button className="SingleMargin edit" onClick={editThis}>编辑</button> : null}
         {props.triggerCorrelationPanel ? <button className="SingleMargin add-answer" onClick={() => {console.log(props.triggerCorrelationPanel);props.triggerCorrelationPanel!(props.comment)}}>添加关联</button> : null}
