@@ -1,7 +1,8 @@
 import { Comment } from "@/utils/dataTypes"
 import { useEffect, useRef, useState } from "react"
 import "./page.scss"
-import { getCommentTag } from "@/utils/api"
+import { addCommentTag, getCommentTag } from "@/utils/api"
+import { Input } from 'antd';
 
 // import { Select } from 'antd';
 
@@ -17,6 +18,8 @@ export default function Page(props: {
   
   const [disabled, setDisabled] = useState(false)
   const [tag, setTag] = useState<string[] | null>([])
+  const [addingTag, setAddingTag] = useState<boolean>(false)
+  const [addingTagContent, setAddingTagContent] = useState<string>("")
 
   const contentSpan = useRef<HTMLSpanElement>(null)
   const contentTextarea = useRef<HTMLTextAreaElement>(null)
@@ -49,7 +52,7 @@ export default function Page(props: {
     }
     setDisabled(true)
     helper()
-  }, [])
+  }, [props.comment.commentId, addingTag])
 
   return (
       <div 
@@ -81,11 +84,23 @@ export default function Page(props: {
             </textarea>}
             <span className="text">标签:</span>
             <div className="tags">
-              {tag?.map(it => 
-                <div className="tag" key={it}>
+              {tag?.map((it,index) => 
+                <div className="tag" key={index}>
                   <span>{it}</span>
                 </div>
               )}
+              <div 
+                className="tag"
+              >
+                {addingTag ?
+                <Input
+                  placeholder="标签"
+                  value={addingTagContent}
+                  onChange={e => setAddingTagContent(e.target.value)}
+                  onPressEnter={() => {addCommentTag(addingTagContent, props.comment.commentId);setAddingTag(false);}}
+                />
+                :<span onClick={() => setAddingTag(true)}>+</span>}
+              </div>
             </div>
         </div>
         <button className="SingleMargin delete" onClick={deleteThis}>删除</button>

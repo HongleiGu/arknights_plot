@@ -84,14 +84,16 @@
           background-color: darkred;
           border-radius: 10px;
           margin: 5px;
-          span {
-            height: 100%;
+          * {
+            height: calc(100% - 10px);
             color: white;
             font-size: vh(15);
             width: max-content;
+            max-width: 100%;
             font-family: 'Han Sans SC';
             white-space: nowrap;
-            margin: 5px
+            margin: 5px;
+            background:none;
           }
         }
       }

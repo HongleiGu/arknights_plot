@@ -256,3 +256,8 @@ export async function getCommentTag(commentId: number): Promise<string[] | null>
     throw new Error('Failed to fetch comment tag');
   }
 }
+
+export async function addCommentTag(tag: string, commentId: number): Promise<void> {
+  // console.log(`INSERT INTO commentTag (comment_id, tag) VALUES (${commentId}, ${tag})`);
+  await sql`INSERT INTO commenttag (comment_id, tag) VALUES (${commentId}, ${tag})`;
+}
