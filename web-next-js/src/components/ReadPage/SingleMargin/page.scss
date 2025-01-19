@@ -2,10 +2,10 @@
 
 .SingleMargin {
   position: relative;
-  z-index: 1000;
+  z-index: 1;
   &.margin-item {
     position: relative;
-    left: vw(50);
+    // left: vw(50);
     margin-top: vh(20);
     height: vh(150);
     width: vw(300);
@@ -47,12 +47,12 @@
       line-height: vh(15);
       word-wrap:break-word;
     }
-    .content {
+    .SingleMargin.content {
       position: absolute;
       top: vh(15);
       left: vw(110);
       height: vh(80);
-      width: vw(180);
+      width: min(vw(180), 100%);
       display: flex;
       flex-direction: column;
       justify-content: right;
@@ -61,6 +61,7 @@
       .content-item {
         margin: 0px;
         height: max-content;
+        min-height: 20px;
         width: 100%;
         color: white;
         font-size: vh(15);

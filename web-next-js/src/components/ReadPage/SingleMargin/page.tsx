@@ -84,7 +84,6 @@ export default function Page(props: {
             </span>
             :
             <textarea
-              // type="text"
               className="SingleMargin content-item"
               ref={contentTextarea}
               value={message}
@@ -127,7 +126,7 @@ export default function Page(props: {
             /> : <span>loading ...</span>
           } 
           onOpenChange={dialog ? () => console.log(dialog) : async () => setDialog(await getSpecificDialog(props.comment.story, props.comment.chapter, props.comment.dialogId))}
-          title="Title"
+          title={`${props.comment.story}/${props.comment.chapter}`}
           className="SingleDialog showDialog"
         >
           <button>显示原文</button>

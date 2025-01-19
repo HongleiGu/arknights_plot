@@ -5,9 +5,10 @@
 
 // import { z } from 'zod';
 import { sql } from '@vercel/postgres';
-import { Choice, Comment, CommentTag, Images, Outcome, Plot, UserQuery} from './dataTypes';
+import { Choice, Comment, CommentTag, Correlation, CorrelationCommentPair, Images, Outcome, Plot, UserQuery} from './dataTypes';
 import { User } from 'next-auth';
 import { convertKeysToCamelCase } from '.';
+import { BaseOptionType, DefaultOptionType } from 'antd/es/select';
 // import { Plot, Choice, Comment, Outcome, Image } from './dataTypes';
  
 // export async function listPlots(plot: FormData) {
@@ -283,4 +284,66 @@ export async function getSpecificDialog(
     return null;
   }
   return convertKeysToCamelCase(result.rows[0] as Plot)
+}
+
+export async function getCorrelation(commentId: number): Promise<CorrelationCommentPair[]> {
+  const result = await sql`
+    SELECT c.*, co.*
+    FROM correlation co
+    JOIN comments c ON c.comment_id = co.second_comment_id
+    WHERE co.first_comment_id = ${commentId}
+  `;
+
+  // Check if there are any results
+  if (result.rows.length <= 0) {
+    return [];
+  }
+
+  // Map the results to return pairs of comments and correlations
+  return result.rows.map(row => ({
+    comment: convertKeysToCamelCase(row as Comment),
+    correlation: convertKeysToCamelCase(row as Correlation)
+  } as CorrelationCommentPair));
+}
+
+export async function setCorrelationContent(id: number, content: string): Promise<void> {
+  await sql`
+    UPDATE correlation
+    SET correlation_content = ${content}
+    WHERE correlation_id = ${id};
+  `
+}
+
+export async function deleteCorrelation(id: number): Promise<void> {
+  await sql`
+    DELETE FROM correlation
+    WHERE correlation_id = ${id};
+  `
+}
+
+export async function getChapter(): Promise<(BaseOptionType | DefaultOptionType)[]> {
+  const result = await sql`
+    SELECT chapter FROM stories
+  `
+  return result.rows.map(it => {
+    const item = (it as {story: string})
+    return {
+      name: item.story,
+      value: item.story
+    }
+  });
+}
+
+export async function getStories(chapter: string): Promise<(BaseOptionType | DefaultOptionType)[]> {
+  const result = await sql`
+    SELECT story FROM stories
+    WHERE chapter = ${chapter}
+  `
+  return result.rows.map(it => {
+    const item = (it as {story: string})
+    return {
+      name: item.story,
+      value: item.story
+    }
+  });
 }

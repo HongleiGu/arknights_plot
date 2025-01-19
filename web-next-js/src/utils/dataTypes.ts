@@ -119,6 +119,13 @@ export interface Images {
   shift: number;
 }
 
+export interface Correlation {
+  correlationId: number,
+  firstCommentId: number,
+  secondCommentId: number,
+  correlationContent: string
+}
+
 // export interface User {
 //   id?: number,
 //   username: string,
@@ -149,3 +156,8 @@ export const emptyImage: Images = {
   shift: 0,            // Placeholder value for shift
 };
 
+
+export interface CorrelationCommentPair {
+  correlation: Correlation,
+  comment: Comment
+}

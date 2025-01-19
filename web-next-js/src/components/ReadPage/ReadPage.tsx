@@ -332,10 +332,10 @@ export default function Page() {
           />
         </div>
       </div>
-      <CorrelationPanel 
+      { showPanel != null ? <CorrelationPanel 
         comment={showPanel}
-        handleClose={() => {console.log("close");setShowPanel(null)}}
-      />
+        handleClose={() => {setShowPanel(null)}}
+      /> : null}
     </div>
   )
 }

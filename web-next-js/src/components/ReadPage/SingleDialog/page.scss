@@ -1,7 +1,7 @@
 @use '@/app/base.scss' as *;
 
 .SingleDialog {
-  z-index: 1000;
+  z-index: 1;
   &.content-item {
     position: relative;
     left: vw(50);
