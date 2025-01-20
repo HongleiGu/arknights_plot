@@ -1,7 +1,9 @@
 @use 'sass:math';
+@use 'animations.scss';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 
 $design-width: 1920;
 $design-height: 1080;
@@ -102,7 +104,6 @@ html, body {
   font-family: 'Noto Sans SC';
   font-weight: 900;
   letter-spacing: 0px;
-  font-size: 40%;
 }
 
 .routerlink-ch{
@@ -110,5 +111,4 @@ html, body {
   font-family: 'Noto Sans';
   font-weight:900;
   letter-spacing: 0px;
-  font-size: 40%;
 }

@@ -1,0 +1,40 @@
+@keyframes arrowMoveDown {
+  from {
+    top: 0px;
+  }
+  to {
+    top: 60px;
+  }
+}
+
+#arrow{
+  animation-name: arrowMoveDown;
+  animation-duration: 1.5s;
+  animation-timing-function: linear;
+  animation-delay: 2s;
+  animation-play-state: running;
+  animation-iteration-count: infinite;
+}
+  
+
+@keyframes openTheGate {
+  0% {
+    background: url('/assets/pics/首页1.png');
+    background-size: cover;
+    background-position: center;
+  }
+  100% {
+    background: url('/assets/pics/首页2.png');
+    background-size: cover;
+    background-position: center;
+  }
+}
+
+#gate {
+  // background: url('/assets/pics/首页1.png');
+  scroll-timeline: --background;
+  animation-timeline: --background;
+  animation-name: openTheGate;
+  animation-timing-function: linear;
+  -ms-overflow-style: none;
+}
