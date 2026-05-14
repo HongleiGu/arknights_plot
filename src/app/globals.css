@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0a0c0e;
+  --foreground: #e8e6e3;
+
+  /* Matches ak.hypergryph.com: near-black grays + cyan accent + lime "go" green */
+  --ark-bg: #0a0c0e;
+  --ark-surface: #121417;
+  --ark-surface-2: #1d1f20;
+  --ark-border: #272727;
+  --ark-accent: #18d1ff;          /* primary highlight / interactive */
+  --ark-accent-bright: #6fe3ff;
+  --ark-accent-dim: #0a7fa0;
+  --ark-success: #8fc31f;         /* "go" / available state */
+  --ark-text: #e8e6e3;
+  --ark-muted: #585858;
+  --ark-danger: #ff4444;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-ark-bg: var(--ark-bg);
+  --color-ark-surface: var(--ark-surface);
+  --color-ark-surface-2: var(--ark-surface-2);
+  --color-ark-border: var(--ark-border);
+  --color-ark-accent: var(--ark-accent);
+  --color-ark-accent-bright: var(--ark-accent-bright);
+  --color-ark-accent-dim: var(--ark-accent-dim);
+  --color-ark-success: var(--ark-success);
+  --color-ark-text: var(--ark-text);
+  --color-ark-muted: var(--ark-muted);
+  --color-ark-danger: var(--ark-danger);
+}
+
+body {
+  background: var(--ark-bg);
+  color: var(--ark-text);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ark-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ark-border);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ark-accent-dim);
+}
