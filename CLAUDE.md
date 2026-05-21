@@ -15,8 +15,8 @@ without losing `users` / `comments`:
    It drops the whole content + correlations + comment_anchors chain in
    dependency order (no `CASCADE`), and drops policies on the preserved
    `users` + `comments` tables so `005_rls.sql` can recreate them.
-2. Re-apply migrations `001_core.sql … 005_rls.sql` (in order). `users` and
-   `comments` are `CREATE TABLE IF NOT EXISTS`, so their data survives.
+2. Re-apply migrations `001_core.sql … 008_is_text.sql` (in order). `users`
+   and `comments` are `CREATE TABLE IF NOT EXISTS`, so their data survives.
 3. `python scripts/run_pipeline.py` to repopulate.
 
 ## Run the pipeline
@@ -25,22 +25,31 @@ without losing `users` / `comments`:
 python scripts/run_pipeline.py             # fast, additive (idempotent)
 python scripts/run_pipeline.py --force     # wipe data/plots/ + re-scrape + re-import
 python scripts/run_pipeline.py --only wiki,upload   # subset
+python scripts/run_pipeline.py --only sgad,gadgets  # scrape + import IS gadgets
 ```
 
 **Prereqs**
-- `.env.local` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`
-- Migrations `001_core.sql` … `005_rls.sql` applied
+- `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`
+- Migrations `001_core.sql` … `008_is_text.sql` applied
 - Public bucket named **`data`** exists in Supabase Storage
 
 **Steps** (in order):
 1. `scrape_plots.py` — only with `--force`, fetches plot `.txt` files into `data/plots/`
 2. `parse_plots.py [--force]` — populates `stories` + `chapters` + `scenes`/`nodes`/`branches`. Inserts each story with `name_en = name` as the NOT NULL placeholder.
+2a. `scrape_gadgets.py [--force] [--no-icons]` — **force-only** in the pipeline. Scrapes the 集成战略 gadget catalogs from prts.wiki into `data/gadgets.json`. Relic catalogs are fully implemented for the 5 modern themes (each reskins the catalog under a different subpage — see `CATALOGS` in the script); IS1 `傀影与猩红孤钻` and squads/trader are registered parser slots (TODO). For non-刻俄柏 themes the relic **sub-category** (斗争之物 / 生存助力 / 专业工具 / …, from the section headings) becomes `gadgets.kind`; 刻俄柏 is a flat list → `kind='relic'`. Each relic icon is downloaded to `data/gadget-icons/<theme>/<wiki-basename>` and `icon_sha1` set (same sha1 convention as `upload_story_images.py`); `scripts/upload_gadget_icons.py` pushes them to Storage at `gadget-icons/<sha1>.png` (not auto-wired into the pipeline — run it after import). Idempotent via a per-(theme, parser) marker in `gadgets.json` (`raw.parser`); skips themes already populated unless `--force`. Writes `data/gadgets_scrape.json` for debugging.
+2b. `import_gadgets.py [--force]` — upserts the gadget catalog (relics/squads/endings/…) from `data/gadgets.json` into `gadgets`. No-op if that file is absent or `[]`. `gadgets.json` is produced by `scrape_gadgets.py`; hand-edits are still respected (the scraper skips already-populated themes without `--force`). See `data/gadgets.example.json` for the shape.
+2c. `scrape_events.py [--force]` — **force-only** in the pipeline. Scrapes the 集成战略 random-event decision trees from each theme's `事件一览` into `data/events.json` for **all 6 themes** (287 events / 2484 options). Two layouts, auto-detected: the 5 modern themes hydrate a hidden `IS-event-data-root` widget block (`_parse_widget`, nested trees + predicates); `刻俄柏的灰蕈迷境` uses the older MediaWiki wikitable layout (`_parse_wikitable`, flat — `<h3>` per event, inner collapsible table per choice). Idempotent: skips themes already in `events.json` unless `--force`. Writes `data/events_scrape.json` for debugging (per-theme counts — a sudden 0 flags a layout change). See `data/events.example.json` for the shape.
+2d. `import_events.py [--force]` — replace-per-theme load of `data/events.json` into `events` + `event_options` (self-ref tree). No-op if that file is absent. Always wipes a listed theme's events (cascade) then re-inserts — idempotent; events are wholly scrape-sourced (no hand-edits).
+2e. `scrape_is_text.py [--force] [--no-import]` — **standalone** (not in the pipeline). Scrapes 集成战略 supplementary text from each theme's archive sub-page into `data/is_text.json`, then calls `import_is_text.py` automatically. Two sections per theme: `遐想交织录` (character dossiers → `kind='character_record'`) and `预言诗篇` (ending epilogue text → `kind='ending_supplement'`). Each `PART` block in the wiki → one `text_chunk` row. Idempotent: skips themes already in `is_text.json` unless `--force`. Writes `data/is_text_scrape.json` for debugging (chunk counts — a sudden 0 flags a layout change). Currently implements **萨卡兹的无终奇语** only (`THEMES` list in the script); add entries for other themes as their archive sub-pages are confirmed. `刻俄柏の灰蕈迷境` has no character records — no entry needed.
 3. `import_wiki_descriptions.py` — fills `chapter_descriptions` from `data/story_descriptions.json`
 4. `scrape_story_pages.py` — for each story, fetches `prts.wiki/w/<story_name>` and extracts `name_en` (the `副标题` field), `description` (first `<div class="poem">` block), and the title image filename (`标题图文件名`). Downloads the title image into the matching `data/img/<grouping>/<story>.<ext>` and stamps `stories.name_en` + `stories.description`. Skips stories whose `description` is already set unless `--force`. Writes `data/story_pages.json` for debugging / cover handling.
 5. `upload_story_images.py` — uploads all `<story>.png` / `.jpg` / `_cover.png` / `_icon.png` files under `data/img/` to Storage (non-PNG converted to PNG via Pillow), stamps `stories.{icon,title,cover}_sha1`. When multiple files match the same `(kind, story)` pair, the most recently modified wins — so a fresh JPG from step 4 supersedes an older local PNG.
 
-Each step is idempotent. `--force` only affects `parse_plots` (and triggers the
-scrape step). Image assets under `data/img/` and `data/story_descriptions.json`
+Each step is idempotent. `--force` re-runs `parse_plots` from scratch and
+triggers the force-only steps (`scrape_plots`, `scrape_gadgets`,
+`scrape_events`). To populate gadgets/events on a fast (non-force) run, use
+`--only sgad,gadgets` / `--only sevt,events` (`--only` bypasses force-only
+gating). Image assets under `data/img/` and `data/story_descriptions.json`
 are NOT touched by `--force` — re-scrape those with
 `scripts/scrape_story_descriptions.py` (which writes into `data/story_icons/`)
 followed by `scripts/reorg_story_icons.py --apply`.
@@ -53,18 +62,91 @@ followed by `scripts/reorg_story_icons.py --apply`.
 stories  (id, category, name, description, image_path, image_source_filename, arc, seq)
    ↑
    referenced by per-content-shape tables:
-   - chapters       (text-narrative content — only shape today)
+   - chapters       (text-narrative content — dialogue/decisions; 002)
+   - gadgets        (集成战略/生息演算 catalog: relics/squads/endings/…; 006)
+   - events         (集成战略 random-event decision trees; 007)
+   - text_clusters / text_chunks  (集成战略 hand-kept supplementary text; 008)
    - tracks         (future, for 主题曲/乐章)
-   - is_events      (future, for 集成战略 roguelike)
 ```
 
 Every browsable piece of content gets a `stories` row regardless of category.
 Per-shape tables FK to `stories.id`. New content shapes = new migration, no
-changes to the universal layer.
+changes to the universal layer. **Misc / uncategorized content** needs no
+special shape: it's just a bare `stories` row (no cover, maybe a few
+`chapters`) — the universal layer already covers it.
 
 Annotations (`comments`, `correlations`) anchor at any of `story_id` /
-`chapter_id` / `node_id` / `branch_node_id`. To support a new anchor type,
-add a nullable FK column to `comment_anchors` and extend its CHECK.
+`chapter_id` / `node_id` / `gadget_id` / `event_id` / `event_option_id`. To
+support a new anchor type, add a nullable FK column to `comment_anchors` (+
+`correlation_members`) and extend its CHECK — see `006_gadgets.sql` /
+`007_events.sql`, which ALTER both after the fact rather than renumbering
+`004`.
+
+**Events** (`007`): 集成战略 per-encounter events (事件) — NOT in the parsed
+`.txt` (those hold only each theme's framing + 5 endings); the wiki
+`事件一览` page is the sole source. An event is a shallow decision tree —
+`events` (one row per event; `UNIQUE(story_id, name, seq)` because a theme
+can ship two same-named events) + `event_options`, a **self-referencing**
+tree (`parent_option_id` NULL = a top-level choice; set = a choice inside the
+sub-scene the parent opened — handles the 同心-style 2-level events). It does
+NOT reuse the linear `nodes`/`decisions` model, which is deliberately 1-level
+(`no_decision_in_branch`) and AVG-script shaped. `scrape_events.py` →
+`data/events.json` → `import_events.py` (replace-per-theme, idempotent).
+`predicate` = a `desc2` that gates when the option appears; `note` = an
+info/alert `desc2`.
+
+**Gadgets** (`006`): the fixed, finite catalog a 集成战略 / 生息演算 theme
+ships with — 藏品 (relic), 分队 (squad), 结局 (ending), 道具 (tool), …. One
+`gadgets` row per item, FK → owning `stories` theme, `kind` free-text (no
+CHECK — a new gadget class is data, not a migration), `UNIQUE
+(story_id, kind, name)` for idempotent upsert. The *narrative + decision*
+side of these modes already flows through the text-narrative shape (the
+`.txt` exist and parse today); `gadgets` is only the catalog side.
+`scrape_gadgets.py` scrapes the catalog from prts.wiki into
+`data/gadgets.json`, then `import_gadgets.py` upserts it. Relic catalogs
+are done for the 5 modern 集成战略 themes (each reskins the catalog under
+a different subpage — `CATALOGS` in `scrape_gadgets.py`); IS1
+`傀影与猩红孤钻` (older multi-section layout) and squads / the 诡意行商
+trader are registered parser slots — adding one = a parser fn + CatalogSpec
+rows, no harness change. Level descriptions are deliberately out of the
+gadget layer; endings flow through the text-narrative pipeline, not here.
+`data/gadgets.example.json` documents the shape (incl. the scraper's `raw`
+keys); `data/gadgets.json` is `[]` until first scraped.
+
+**Supplementary text** (`008`): hand-maintained prose that belongs to a
+集成战略 theme but is neither scraped AVG script nor the relic catalog.
+Two current `kind` values:
+- `ending_supplement` — epilogue chunks for one ending chapter. `level_code`
+  matches the corresponding `chapters.level_code` (soft tie; no FK) so the
+  chapter reader can look it up. Shown appended to the ending chapter after
+  the full narrative (last page only).
+- `character_record` — per-character dossier for the theme. `title` = character
+  name; `title_en` = optional English name.
+
+Schema: `text_clusters` (story_id FK → stories, kind, title, level_code, seq)
+\+ `text_chunks` (cluster_id FK, seq, title, body). A cluster is the chapter-like
+grouping; each chunk is its own row (individually addressable — a future
+`comment_anchors` widening can add `text_chunk_id` the same way 006/007 added
+`gadget_id`/`event_option_id`). No UNIQUE on `text_clusters` — idempotent
+import via replace-per-story (delete the story's clusters of the relevant kind,
+re-insert), the established `import_events.py` idiom. A new supplementary text
+shape = new `kind` value in the JSON + new import handling; no migration needed.
+
+Source: `data/is_text.json` → `python scripts/import_is_text.py`. The JSON shape
+is documented in `data/is_text.example.json`. Each chunk is either a plain string
+(→ body, no title) or `{ "title": "…", "body": "…" }`. `刻俄柏的灰蕈迷境` has no
+character records — simply no rows; no special-casing needed.
+
+**Branch dialogue is unified into `nodes`** (no separate `branch_nodes`
+table): a predicate-branch line is a `nodes` row with `branch_id` set
+(FK → `predicate_branches`, added via ALTER in `002` to break the
+`nodes → predicate_branches → decisions → nodes` cycle; `reset.sql`
+drops constraint `nodes_branch_fk` first for the same reason). The
+discriminator is `branch_id IS NOT NULL` — no redundant boolean. `seq`
+is position within the row's parent context: within `chapter_id` for
+main-sequence rows (`branch_id IS NULL`), within `branch_id` for branch
+rows. Consequences: the linear reader must filter `branch_id IS NULL`;
+one `node_id` anchor now covers both main and branch lines.
 
 ### Categories (`stories.category`)
 
@@ -73,8 +155,8 @@ add a nullable FK column to `comment_anchors` and extend its CHECK.
 | 主线 | text-narrative | Main story arcs (黑暗时代·上 …) |
 | 支线 | text-narrative | Side stories (51 entries, all have icons + wiki descriptions) |
 | 故事集 | text-narrative | Story sets / 微型故事集 (20 entries, icons only) |
-| 集成战略 | text-narrative (today) | Roguelike. May need its own shape later. |
-| 生息演算 | text-narrative (today) | Reclamation algorithm. May need its own shape later. |
+| 集成战略 | text-narrative + `gadgets` + `text_clusters` | Roguelike. Events/endings parse as text-narrative; relics/squads catalog in `gadgets` (006); supplementary text (ending epilogues, character dossiers) in `text_clusters`/`text_chunks` (008). |
+| 生息演算 | text-narrative + `gadgets` | Reclamation algorithm. Same split — narrative in chapters/nodes, tools/catalog in `gadgets`. |
 | 四月辑录 | text-narrative | April records |
 | 特殊 | text-narrative | Hidden / special |
 | 主题曲, 乐章 | not imported yet | Music — will need their own per-shape tables |
@@ -87,7 +169,8 @@ The schema was renamed once. **Current names:**
 - `stories` = top-level registry (one row per event/arc/album/run)
 - `chapters` = file-level (one row per parsed .txt)
 - `chapters.story_id` → FK to `stories`
-- `scenes` / `nodes` / `branch_nodes` / `predicate_branches` use `chapter_id` (not `story_id`)
+- `scenes` / `nodes` / `predicate_branches` use `chapter_id` (not `story_id`);
+  branch dialogue is `nodes` rows with `branch_id` set (no `branch_nodes` table)
 
 **Before** the rename (older git history):
 - `stories` was file-level (now `chapters`)
@@ -171,11 +254,15 @@ image kind:
 data/story-icons/<sha1>.png       ← from <story>_icon.png
 data/story-titles/<sha1>.png      ← from <story>.png
 data/story-covers/<sha1>.png      ← from <story>_cover.png
+data/gadget-icons/<sha1>.png      ← from data/gadget-icons/<theme>/<file>
 ```
 
 **SHA1 input** = the path relative to `data/`, e.g.
-`img/乐章/夏日律动/火蓝之心_icon.png`. This guarantees uniqueness across
-folders without depending on file content.
+`img/乐章/夏日律动/火蓝之心_icon.png` or
+`gadget-icons/萨卡兹的无终奇语/rogue_4_relic_legacy_9.png`. This guarantees
+uniqueness across folders without depending on file content. Gadget icons
+live under `data/gadget-icons/` (NOT `data/img/`, which `upload_story_images.py`
+rglobs); `scrape_gadgets.py` downloads them, `upload_gadget_icons.py` uploads.
 
 **Why SHA1**: Supabase Storage rejects `:`, `·`, and some Unicode in object names.
 Hashing the relative path produces a safe key. The original filename is
@@ -189,9 +276,12 @@ recoverable via filesystem (the local copy is still readable by name).
 | `title_sha1` | title | `data/story-titles/<sha1>.png` |
 | `cover_sha1` | cover | `data/story-covers/<sha1>.png` |
 
+Plus `gadgets.icon_sha1` → `data/gadget-icons/<sha1>.png`.
+
 The DB stores **only the SHA1** (40 hex chars). Bucket, subdirectory, and
 extension are implicit. URL construction lives in
-[src/lib/storage.ts](src/lib/storage.ts) — call `storyImageUrl(kind, sha1)`.
+[src/lib/storage.ts](src/lib/storage.ts) — `storyImageUrl(kind, sha1)` for
+stories, `gadgetIconUrl(sha1)` for gadgets.
 
 ---
 
@@ -236,9 +326,16 @@ JSX parses `//` in children as a JS-style comment and chokes. **Always wrap:**
 
 ## Scraper / network notes
 
-- `scrape_plots.py` and `scrape_story_descriptions.py` both hit prts.wiki.
-  Both have retry+backoff (5 attempts, 60s timeout, exponential).
-- Scraping is idempotent: existing files are skipped, so re-runs resume cleanly.
+- `scrape_plots.py`, `scrape_story_descriptions.py`, `scrape_gadgets.py`
+  and `scrape_events.py` all hit prts.wiki, all with retry+backoff (60s
+  timeout, exponential).
+- Scraping is idempotent: existing files are skipped, so re-runs resume
+  cleanly. `scrape_gadgets.py` / `scrape_events.py` are keyed differently —
+  the marker is per-theme inside `data/gadgets.json` (`raw.parser`) /
+  `data/events.json` (theme block present), not file existence; they feed
+  `import_gadgets.py` / `import_events.py` and write debug
+  `data/gadgets_scrape.json` / `data/events_scrape.json` (per-theme counts —
+  a sudden 0 flags a wiki layout change).
 - Persistent timeouts after retries usually mean GFW throttling — VPN fixes it.
 
 ---
@@ -253,6 +350,17 @@ JSX parses `//` in children as a JS-style comment and chokes. **Always wrap:**
   table hanging off `stories.id` is the move.
 - **Story-level descriptions** — `stories.description` is mostly NULL. We only
   imported per-chapter descriptions (`chapter_descriptions`), not per-story ones.
-- **集成战略 / 生息演算 / 四月辑录** — currently mapped to the text-narrative shape.
-  If their content gets weird (roguelike branching, choice trees, etc.), break them
-  out into their own per-shape tables.
+- **集成战略 / 生息演算** — the theme framing + 5 endings use the
+  text-narrative shape (the `.txt` parse fine). The **catalog**
+  (relics/squads/endings/tools) is `gadgets` (006); the per-encounter
+  **events** are `events` + `event_options` (007). Relic catalogs are scraped
+  (`scrape_gadgets.py`) for the 5 modern themes → `data/gadgets.json` →
+  `import_gadgets.py`, with per-relic sub-category as `kind` and icons
+  downloaded + uploadable (`upload_gadget_icons.py`). Events are scraped
+  (`scrape_events.py`) for **all 6 themes** → `data/events.json` →
+  `import_events.py` (the 5 modern themes via the widget layout, 刻俄柏的灰蕈迷境
+  via the old wikitable layout — auto-detected). Open: (1) `is1-relic` parser
+  for 傀影与猩红孤钻 (older multi-section relic layout — registered, raises a
+  clear TODO); (2) squad / 诡意行商 trader parsers (registered slots); (3) a
+  frontend surface for browsing gadgets/events.
+- **四月辑录** — still plain text-narrative; fine as-is.

@@ -7,6 +7,7 @@ const CATEGORIES = [
   { id: '集成战略', latin: 'INTEGRATED STR.', name: '集成战略', desc: '集成战略随机剧情' },
   { id: '生息演算', latin: 'RECLAMATION',    name: '生息演算', desc: '生息演算剧情' },
   { id: '特殊',     latin: 'SPECIAL',        name: '特殊剧情', desc: '隐藏与特殊内容' },
+  { id: '干员',     latin: 'OPERATOR',       name: '干员密录', desc: '干员个人故事档案' },
 ]
 
 export default function HomePage() {

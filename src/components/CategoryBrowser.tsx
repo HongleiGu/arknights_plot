@@ -41,13 +41,13 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
   const totalStr = total.toString().padStart(3, '0')
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
+    <div className="h-full min-h-0 overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10">
       {/* ============================================================ */}
       {/* DISPLAYER  (left ~7/12 on desktop, full width on mobile)     */}
       {/* ============================================================ */}
-      <div className="lg:col-span-7 lg:sticky lg:top-20 lg:self-start">
+      <div className="min-h-0 lg:col-span-7 lg:h-full lg:overflow-hidden">
         {/* HUD frame */}
-        <div className="relative">
+        <div className="relative lg:h-full lg:flex lg:flex-col">
           {/* Corner brackets */}
           <BracketCorner pos="tl" />
           <BracketCorner pos="tr" />
@@ -55,7 +55,7 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
           <BracketCorner pos="br" />
 
           {/* Cover image */}
-          <div className="relative aspect-[16/10] bg-ark-bg overflow-hidden border border-ark-border">
+          <div className="relative aspect-[16/10] shrink-0 bg-ark-bg overflow-hidden border border-ark-border">
             {imgUrl ? (
               <Image
                 key={active.name}  /* re-mount on change for fade-in */
@@ -98,24 +98,29 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
           </div>
 
           {/* Below-cover info plate */}
-          <div className="mt-4 border-l-2 border-ark-accent pl-4">
-            <p className="font-mono text-[11px] text-ark-muted tracking-widest uppercase mb-1">
-              <span className="text-ark-accent">{'//'}</span> ARC <span className="text-ark-border">·</span> {category}
-            </p>
-            <h2 className="text-3xl font-light tracking-wider text-ark-text mb-3">
-              {active?.name ?? '—'}
-            </h2>
+          <div className="mt-4 min-h-0 border-l-2 border-ark-accent pl-4 lg:flex lg:flex-1 lg:flex-col">
+            <div className="min-h-0 gap-5 lg:flex lg:flex-1">
+              <div className="shrink-0 lg:w-64 xl:w-72">
+                <p className="font-mono text-[11px] text-ark-muted tracking-widest uppercase mb-1">
+                  <span className="text-ark-accent">{'//'}</span> ARC <span className="text-ark-border">·</span> {category}
+                </p>
+                <h2 className="text-3xl font-light tracking-wider text-ark-text">
+                  {active?.name ?? '—'}
+                </h2>
 
-            <p className="text-sm text-ark-muted leading-relaxed max-w-2xl">
-              {active?.description ??
-                <span className="font-mono text-[11px] tracking-widest uppercase text-ark-border">
-                  {'// no description on file'}
-                </span>
-              }
-            </p>
+              </div>
+
+              <p className="mt-4 min-h-0 text-sm text-ark-muted leading-relaxed lg:mt-0 lg:flex-1 lg:overflow-y-auto lg:pr-3">
+                {active?.description ??
+                  <span className="font-mono text-[11px] tracking-widest uppercase text-ark-border">
+                    {'// no description on file'}
+                  </span>
+                }
+              </p>
+            </div>
 
             {/* Metadata row */}
-            <dl className="mt-5 grid grid-cols-3 gap-4 font-mono text-[10px] tracking-widest uppercase">
+            <dl className="mt-5 shrink-0 grid grid-cols-3 gap-4 font-mono text-[10px] tracking-widest uppercase">
               <Metric label="CHAPTERS" value={active?.count.toString().padStart(2, '0') ?? '00'} />
               <Metric label="INDEX" value={idx} />
               <Metric label="STATUS" value="OPEN" />
@@ -125,7 +130,7 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
             {active && (
               <Link
                 href={`/${encodedCategory}/${encodeURIComponent(active.name)}`}
-                className="inline-flex items-center gap-3 mt-6 px-5 py-2.5
+                className="inline-flex shrink-0 items-center gap-3 mt-6 px-5 py-2.5
                            border border-ark-accent text-ark-accent
                            font-mono text-xs tracking-[0.3em] uppercase
                            hover:bg-ark-accent hover:text-ark-bg
@@ -142,8 +147,8 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
       {/* ============================================================ */}
       {/* CURVING LIST  (right ~5/12 on desktop, full width on mobile) */}
       {/* ============================================================ */}
-      <div className="lg:col-span-5">
-        <div className="mb-3 flex items-center gap-2 font-mono text-[10px] tracking-widest uppercase text-ark-muted">
+      <div className="min-h-0 lg:col-span-5 lg:flex lg:h-full lg:flex-col">
+        <div className="mb-3 flex shrink-0 items-center gap-2 font-mono text-[10px] tracking-widest uppercase text-ark-muted">
           <span className="text-ark-accent">[</span>
           <span>OPERATION FILES</span>
           <span className="text-ark-accent">]</span>
@@ -154,7 +159,7 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
 
         {/* Perspective stage. On hover/focus, items rotate to face-on. */}
         <ul
-          className="flex flex-col gap-1.5"
+          className="flex flex-col gap-1.5 lg:min-h-0 lg:overflow-y-auto lg:pr-2 lg:pb-4"
           style={{ perspective: '1400px', perspectiveOrigin: 'left center' }}
         >
           {stories.map((s, i) => {
@@ -163,19 +168,9 @@ export default function CategoryBrowser({ stories, category, encodedCategory }: 
               <li key={s.name}>
                 <button
                   type="button"
-                  onMouseEnter={() => setActiveIdx(i)}
-                  onFocus={() => setActiveIdx(i)}
-                  onClick={() => {
-                    // Click = navigate. Second click on the same active item
-                    // is the user confirming; useRouter would be cleaner but
-                    // we route this through the displayer CTA which keeps a
-                    // single canonical "navigate" path.
-                    if (isActive) {
-                      window.location.href = `/${encodedCategory}/${encodeURIComponent(s.name)}`
-                    } else {
-                      setActiveIdx(i)
-                    }
-                  }}
+                  // onMouseEnter={() => setActiveIdx(i)}
+                  // onFocus={() => setActiveIdx(i)}
+                  onClick={() => setActiveIdx(i)}
                   className={`group w-full text-left transition-all duration-400 ease-out
                               ${isActive ? 'translate-x-0' : 'translate-x-4 hover:translate-x-2'}`}
                   style={{

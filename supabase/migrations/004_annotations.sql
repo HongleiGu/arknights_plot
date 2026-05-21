@@ -7,6 +7,11 @@
 -- entity type. To add a new anchor target later (e.g. a music
 -- track or roguelike event), add a new nullable column and
 -- extend the CHECK to include it.
+--
+-- NOTE: predicate-branch dialogue is no longer a separate table —
+-- it's `nodes` rows with branch_id set (see 002). So a single
+-- `node_id` anchor covers both main-sequence and branch lines;
+-- there is no `branch_node_id`.
 -- ============================================================
 
 -- IF NOT EXISTS so this migration is safe to re-run after supabase/reset.sql,
@@ -20,26 +25,24 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 -- A comment pins to exactly one target. Anchor granularity:
---   story_id       — comment on the whole arc/album/run
---   chapter_id     — comment on a chapter (entire file)
---   node_id        — comment on a single line in the main sequence
---   branch_node_id — comment on a single line inside a predicate branch
+--   story_id   — comment on the whole arc/album/run
+--   chapter_id — comment on a chapter (entire file)
+--   node_id    — comment on a single line; main-sequence OR predicate
+--                branch (branch lines are nodes with branch_id set)
 CREATE TABLE comment_anchors (
   id              SERIAL PRIMARY KEY,
   comment_id      INT NOT NULL REFERENCES comments(id)     ON DELETE CASCADE,
   story_id        INT REFERENCES stories(id)               ON DELETE CASCADE,
   chapter_id      INT REFERENCES chapters(id)              ON DELETE CASCADE,
   node_id         INT REFERENCES nodes(id)                 ON DELETE CASCADE,
-  branch_node_id  INT REFERENCES branch_nodes(id)          ON DELETE CASCADE,
   CONSTRAINT exactly_one_anchor CHECK (
-    (story_id       IS NOT NULL)::INT +
-    (chapter_id     IS NOT NULL)::INT +
-    (node_id        IS NOT NULL)::INT +
-    (branch_node_id IS NOT NULL)::INT = 1
+    (story_id   IS NOT NULL)::INT +
+    (chapter_id IS NOT NULL)::INT +
+    (node_id    IS NOT NULL)::INT = 1
   )
 );
 
--- A named cluster of nodes / branch_nodes / comments across stories,
+-- A named cluster of nodes (main or branch) / comments across stories,
 -- e.g. "all references to Reunion", "all scenes featuring Amiya".
 CREATE TABLE correlations (
   id          SERIAL PRIMARY KEY,
@@ -55,15 +58,13 @@ CREATE TABLE correlation_members (
   story_id        INT REFERENCES stories(id)               ON DELETE CASCADE,
   chapter_id      INT REFERENCES chapters(id)              ON DELETE CASCADE,
   node_id         INT REFERENCES nodes(id)                 ON DELETE CASCADE,
-  branch_node_id  INT REFERENCES branch_nodes(id)          ON DELETE CASCADE,
   comment_id      INT REFERENCES comments(id)              ON DELETE CASCADE,
   note            TEXT,
   CONSTRAINT at_least_one_member CHECK (
-    (story_id       IS NOT NULL)::INT +
-    (chapter_id     IS NOT NULL)::INT +
-    (node_id        IS NOT NULL)::INT +
-    (branch_node_id IS NOT NULL)::INT +
-    (comment_id     IS NOT NULL)::INT >= 1
+    (story_id   IS NOT NULL)::INT +
+    (chapter_id IS NOT NULL)::INT +
+    (node_id    IS NOT NULL)::INT +
+    (comment_id IS NOT NULL)::INT >= 1
   )
 );
 
@@ -71,5 +72,4 @@ CREATE INDEX idx_comment_anchors_comment      ON comment_anchors(comment_id);
 CREATE INDEX idx_comment_anchors_story        ON comment_anchors(story_id);
 CREATE INDEX idx_comment_anchors_chapter      ON comment_anchors(chapter_id);
 CREATE INDEX idx_comment_anchors_node         ON comment_anchors(node_id);
-CREATE INDEX idx_comment_anchors_branch_node  ON comment_anchors(branch_node_id);
 CREATE INDEX idx_correlation_members_corr     ON correlation_members(correlation_id);

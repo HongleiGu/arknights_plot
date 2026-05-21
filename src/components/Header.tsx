@@ -59,7 +59,7 @@ export default async function Header() {
                              hover:border-ark-accent hover:text-ark-accent
                              transition-colors duration-200"
                 >
-                  // LOG OUT
+                  {'// LOG OUT'}
                 </button>
               </form>
             </>
@@ -75,7 +75,7 @@ export default async function Header() {
                            hover:bg-ark-accent hover:text-ark-bg
                            transition-colors duration-200"
               >
-                // LOG IN
+                {'// LOG IN'}
               </Link>
             </>
           )}

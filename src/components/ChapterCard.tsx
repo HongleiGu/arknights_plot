@@ -18,36 +18,30 @@ export default function ChapterCard({ category, storyName, chapter }: ChapterCar
   // Display: "GT-1 日正当中 · BEG"; falls back gracefully if any piece is null.
   const head = [chapter.level_code, chapter.level_name].filter(Boolean).join(' ')
   const title = chapter.stage ? `${head} · ${chapter.stage}` : head || `#${chapter.id}`
+  const ord = chapter.order_in_story.toString().padStart(2, '0')
 
   return (
-    <Link href={href} className="group flex flex-col">
-      {/* Image placeholder */}
-      <div className="relative aspect-video w-full overflow-hidden bg-ark-surface border border-ark-border
-                      group-hover:border-ark-accent-dim transition-colors duration-300">
-        {/* Diagonal accent line */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-ark-muted text-xs tracking-widest uppercase">
-            {chapter.order_in_story.toString().padStart(2, '0')}
-          </span>
-        </div>
-        {/* Hover overlay */}
-        <div className="absolute inset-0 bg-ark-accent/5 opacity-0 group-hover:opacity-100
-                        transition-opacity duration-300" />
-        {/* Corner accent */}
-        <div className="absolute bottom-0 left-0 w-0 h-0.5 bg-ark-accent
-                        group-hover:w-full transition-all duration-300" />
-      </div>
+    <Link
+      href={href}
+      className="group relative flex min-h-16 items-center gap-4 p-3
+                 bg-ark-surface border border-ark-border
+                 hover:border-ark-accent-dim hover:bg-ark-accent/5
+                 transition-colors duration-300"
+    >
+      {/* Index */}
+      <p className="shrink-0 w-9 font-mono text-[10px] text-ark-muted tracking-widest">
+        <span className="text-ark-accent">{'//'}</span> {ord}
+      </p>
 
       {/* Title */}
-      <div className="mt-2 px-1">
-        <p className="text-xs text-ark-muted mb-0.5">
-          {chapter.order_in_story.toString().padStart(2, '0')}
-        </p>
-        <p className="text-sm text-ark-text group-hover:text-ark-accent-bright
-                      transition-colors duration-200 line-clamp-2 leading-snug">
-          {title}
-        </p>
-      </div>
+      <p className="min-w-0 flex-1 text-sm text-ark-text group-hover:text-ark-accent-bright
+                    transition-colors duration-200 line-clamp-2 leading-snug">
+        {title}
+      </p>
+
+      {/* Corner accent — grows on hover */}
+      <div className="absolute bottom-0 left-0 h-0.5 w-0 bg-ark-accent
+                      group-hover:w-full transition-all duration-300" />
     </Link>
   )
 }

@@ -27,7 +27,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-load_dotenv(Path(__file__).parent.parent / ".env.local")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 ROOT       = Path(__file__).parent.parent
 INPUT_JSON = ROOT / "data" / "story_descriptions.json"

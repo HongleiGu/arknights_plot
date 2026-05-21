@@ -45,7 +45,7 @@ from dotenv import load_dotenv
 from PIL import Image
 from supabase import create_client, Client
 
-load_dotenv(Path(__file__).parent.parent / ".env.local")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 ROOT     = Path(__file__).parent.parent
 DATA_DIR = ROOT / "data"

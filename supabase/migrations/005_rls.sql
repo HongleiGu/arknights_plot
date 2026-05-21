@@ -17,7 +17,6 @@ ALTER TABLE scenes                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE nodes                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE decisions             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE predicate_branches    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE branch_nodes          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE chapter_descriptions  ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "public read" ON stories              FOR SELECT USING (true);
@@ -28,7 +27,6 @@ CREATE POLICY "public read" ON scenes               FOR SELECT USING (true);
 CREATE POLICY "public read" ON nodes                FOR SELECT USING (true);
 CREATE POLICY "public read" ON decisions            FOR SELECT USING (true);
 CREATE POLICY "public read" ON predicate_branches   FOR SELECT USING (true);
-CREATE POLICY "public read" ON branch_nodes         FOR SELECT USING (true);
 CREATE POLICY "public read" ON chapter_descriptions FOR SELECT USING (true);
 
 -- ---- Annotations: public read, owner-only writes ---------------------------
@@ -40,6 +38,13 @@ ALTER TABLE correlations        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE correlation_members ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "public read" ON users               FOR SELECT USING (true);
+
+-- Lazy self-creation: comments FK user_id → users.id, but users rows are
+-- not auto-created on sign-up. The server action ensureUserRow() inserts
+-- one on first write, and this policy allows that (the row's clerk_id
+-- must equal the caller's auth.uid).
+CREATE POLICY "self insert" ON users FOR INSERT
+  WITH CHECK (auth.uid()::text = clerk_id);
 CREATE POLICY "public read" ON comments            FOR SELECT USING (true);
 CREATE POLICY "public read" ON comment_anchors     FOR SELECT USING (true);
 CREATE POLICY "public read" ON correlations        FOR SELECT USING (true);

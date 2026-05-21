@@ -4,7 +4,7 @@ Parse all scraped plot .txt files and insert into Supabase.
 Dependencies:
     pip install supabase python-dotenv
 
-Add to .env.local at the project root:
+Add to .env at the project root:
     SUPABASE_URL=https://[ref].supabase.co
     SUPABASE_KEY=your-service-role-key-here
 
@@ -16,6 +16,7 @@ Usage:
 import os
 import re
 import json
+import time
 import logging
 import argparse
 from pathlib import Path
@@ -23,7 +24,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
-load_dotenv(Path(__file__).parent.parent / ".env.local")
+try:
+    from postgrest.exceptions import APIError
+except Exception:                       # import path varies across versions
+    APIError = None                     # type: ignore[assignment,misc]
+
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 DATA_DIR    = Path(__file__).parent.parent / "data" / "plots"
 DESCR_JSON  = Path(__file__).parent.parent / "data" / "story_descriptions.json"
@@ -130,14 +136,47 @@ def parse_line(raw: str):
 
 BATCH_SIZE = 500  # rows per bulk insert
 
-# Buffers flushed at end of each story
+# Every DB call goes over the network and the connection here is flaky, so
+# a dropped insert/select shouldn't sink a whole story. Mirrors the
+# retry/backoff policy in scrape_plots.py.
+MAX_RETRIES   = 5
+RETRY_BACKOFF = 2.0   # seconds, doubled each retry → 2, 4, 8, 16
+
+
+def _execute(query, what: str):
+    """`query.execute()` with retry/backoff for transient network failures.
+
+    Retries connection drops / timeouts (the unstable-internet case). A
+    postgrest APIError means the server received and *rejected* the request
+    (constraint / schema / bad data) — retrying won't help and would just
+    burn ~30s, so re-raise it immediately and let main()'s per-file handler
+    roll the chapter back. Re-raises the last error after the final attempt.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            return query.execute()
+        except Exception as e:
+            if APIError is not None and isinstance(e, APIError):
+                raise
+            last_exc = e
+            if attempt == MAX_RETRIES - 1:
+                break
+            wait = RETRY_BACKOFF * (2 ** attempt)
+            log.warning(f"{what}: retry {attempt+1}/{MAX_RETRIES} after "
+                        f"{wait:.0f}s ({type(e).__name__}: {e})")
+            time.sleep(wait)
+    raise last_exc  # type: ignore[misc]
+
+# Buffer flushed at end of each story. Main-sequence AND predicate-branch
+# rows both land in `nodes` now (branch rows carry branch_id); they share
+# one buffer / one bulk insert.
 _node_buffer: list[dict] = []
-_branch_node_buffer: list[dict] = []
 
 
 def insert_one(table: str, data: dict) -> int:
     """Insert a single row and return its generated id."""
-    res = supabase.table(table).insert(data).execute()
+    res = _execute(supabase.table(table).insert(data), f"insert {table}")
     return res.data[0]["id"]
 
 
@@ -147,41 +186,36 @@ def buffer_node(row: dict):
         flush_nodes()
 
 
-def buffer_branch_node(row: dict):
-    _branch_node_buffer.append(row)
-    if len(_branch_node_buffer) >= BATCH_SIZE:
-        flush_branch_nodes()
-
-
 def flush_nodes():
     if _node_buffer:
-        supabase.table("nodes").insert(_node_buffer).execute()
+        _execute(supabase.table("nodes").insert(_node_buffer),
+                 f"bulk insert {len(_node_buffer)} nodes")
         _node_buffer.clear()
-
-
-def flush_branch_nodes():
-    if _branch_node_buffer:
-        supabase.table("branch_nodes").insert(_branch_node_buffer).execute()
-        _branch_node_buffer.clear()
 
 
 def flush_all():
     flush_nodes()
-    flush_branch_nodes()
 
 
 def query_one(table: str, col: str, val) -> dict | None:
     """Return the first row where col = val, or None."""
-    res = supabase.table(table).select("id").eq(col, val).limit(1).execute()
+    res = _execute(
+        supabase.table(table).select("id").eq(col, val).limit(1),
+        f"lookup {table}.{col}")
     return res.data[0] if res.data else None
 
 
 def truncate_content_tables():
-    """Delete all rows from content tables in dependency order."""
-    for table in ("branch_nodes", "predicate_branches", "decisions",
-                  "nodes", "scenes", "chapter_descriptions", "chapters",
-                  "stories"):
-        supabase.table(table).delete().neq("id", 0).execute()
+    """Delete all rows from content tables in dependency order.
+
+    Deleting predicate_branches first cascades (nodes_branch_fk ON DELETE
+    CASCADE) into the branch rows of `nodes`; the remaining main-sequence
+    rows go when `nodes` itself is cleared.
+    """
+    for table in ("predicate_branches", "decisions", "nodes", "scenes",
+                  "chapter_descriptions", "chapters", "stories"):
+        _execute(supabase.table(table).delete().neq("id", 0),
+                 f"truncate {table}")
 
 
 # Cache (category, story_name) → stories.id during a run.
@@ -198,10 +232,10 @@ def get_or_create_story(category: str, name: str) -> int:
     key = (category, name)
     if key in _story_id_cache:
         return _story_id_cache[key]
-    res = (supabase.table("stories")
-           .select("id")
-           .eq("category", category).eq("name", name)
-           .limit(1).execute())
+    res = _execute(
+        supabase.table("stories").select("id")
+                .eq("category", category).eq("name", name).limit(1),
+        f"lookup story {category}/{name}")
     if res.data:
         sid = res.data[0]["id"]
     else:
@@ -273,6 +307,7 @@ def parse_story(chapter_id: int, file_path: Path):
                 node_id = insert_one("nodes", {
                     "chapter_id": chapter_id,
                     "scene_id":   current_scene_id,
+                    "branch_id":  None,    # decisions are always main-sequence
                     "seq":        node_seq,
                     "type":       "decision",
                     "speaker":    None,
@@ -364,9 +399,12 @@ def _insert_content(chapter_id, scene_id, branch_id,
                     node_seq, branch_node_seq,
                     type_, speaker, content, raw_params):
     if branch_id is not None:
-        buffer_branch_node({
-            "branch_id":  branch_id,
+        # Predicate-branch line: branch_id set, scene_id NULL,
+        # seq is position within the branch.
+        buffer_node({
             "chapter_id": chapter_id,
+            "scene_id":   None,
+            "branch_id":  branch_id,
             "seq":        branch_node_seq,
             "type":       type_,
             "speaker":    speaker,
@@ -374,9 +412,11 @@ def _insert_content(chapter_id, scene_id, branch_id,
             "raw_params": raw_params,
         })
     else:
+        # Main-sequence line: branch_id NULL, seq is position within chapter.
         buffer_node({
             "chapter_id": chapter_id,
             "scene_id":   scene_id,
+            "branch_id":  None,
             "seq":        node_seq,
             "type":       type_,
             "speaker":    speaker,
@@ -610,10 +650,16 @@ def main():
         except Exception as e:
             # Discard any buffered rows for this failed file
             _node_buffer.clear()
-            _branch_node_buffer.clear()
             # Delete the partial chapter row — CASCADE removes all child rows.
             # Leave the stories row in place: other chapters may share it.
-            supabase.table("chapters").delete().eq("id", chapter_id).execute()
+            # Don't let a failed rollback abort the whole run; worst case the
+            # partial row is cleaned by the next --force or reset.
+            try:
+                _execute(
+                    supabase.table("chapters").delete().eq("id", chapter_id),
+                    f"rollback chapter {chapter_id}")
+            except Exception as re_:
+                log.error(f"  rollback of chapter {chapter_id} also failed: {re_}")
             log.error(f"FAILED {rel}: {e} — rolled back, will retry on next run")
             failed.append(rel)
 

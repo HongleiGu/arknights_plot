@@ -37,6 +37,11 @@
   --color-ark-danger: var(--ark-danger);
 }
 
+html {
+  /* In-page TOC jump links (集成战略 theme page) glide instead of snap. */
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--ark-bg);
   color: var(--ark-text);

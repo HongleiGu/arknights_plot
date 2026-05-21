@@ -165,16 +165,19 @@ export default async function CategoryPage({ params }: Props) {
           </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2 pb-4">
-          {isMainline
-            ? <MainlineGrid stories={stories} encodedCategory={encodedCategory} />
-            : <CategoryBrowser
-                stories={stories}
-                category={category}
-                encodedCategory={encodedCategory}
-              />
-          }
-        </div>
+        {isMainline ? (
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1 sm:pr-2 pb-4">
+            <MainlineGrid stories={stories} encodedCategory={encodedCategory} />
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
+            <CategoryBrowser
+              stories={stories}
+              category={category}
+              encodedCategory={encodedCategory}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
