@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import CategoryBrowser from '@/components/CategoryBrowser'
+import FurnitureBrowser, { type FurnitureTheme } from '@/components/FurnitureBrowser'
 import { storyImageUrl } from '@/lib/storage'
 
 interface Props {
@@ -100,7 +101,7 @@ export default async function CategoryPage({ params }: Props) {
   // Stories in this category (one row per arc/album/run).
   const { data: storyRows, error } = await supabase
     .from('stories')
-    .select('id, name, name_en, description, icon_sha1, title_sha1, cover_sha1, seq')
+    .select('id, name, name_en, description, icon_sha1, title_sha1, cover_sha1, seq, arc')
     .eq('category', category)
     .order('seq', { ascending: true, nullsFirst: false })
     .order('id')
@@ -134,7 +135,80 @@ export default async function CategoryPage({ params }: Props) {
     count:       countByStoryId.get(s.id) ?? 0,
   }))
 
-  const isMainline = category === '主线'
+  const isMainline  = category === '主线'
+  const isFurniture = category === '家具'
+
+  // ---- Furniture: build themes from stories + item metadata ------------------
+  if (isFurniture) {
+    if (!storyRows?.length) notFound()
+
+    // One row per item — fetch only the theme-level columns (same per theme).
+    const { data: itemMetaRows } = await supabase
+      .from('furniture_items')
+      .select('story_id, atmo_total, date_added, acquisition')
+      .in('story_id', storyRows.map(s => s.id))
+
+    type ItemMeta = { count: number; atmo_total: number | null; date_added: string | null; acquisition: string | null }
+    const metaByStoryId = new Map<number, ItemMeta>()
+    for (const row of itemMetaRows ?? []) {
+      const existing = metaByStoryId.get(row.story_id)
+      if (!existing) {
+        metaByStoryId.set(row.story_id, {
+          count: 1,
+          atmo_total: row.atmo_total,
+          date_added: row.date_added,
+          acquisition: row.acquisition,
+        })
+      } else {
+        existing.count++
+      }
+    }
+
+    const themes: FurnitureTheme[] = storyRows.map(s => {
+      const meta = metaByStoryId.get(s.id) ?? { count: 0, atmo_total: null, date_added: null, acquisition: null }
+      return {
+        id:          s.id,
+        section:     s.arc ?? '',
+        name:        s.name,
+        description: s.description,
+        icon_sha1:   s.icon_sha1,
+        seq:         s.seq ?? 0,
+        count:       meta.count,
+        atmo_total:  meta.atmo_total,
+        date_added:  meta.date_added,
+        acquisition: meta.acquisition,
+      }
+    })
+
+    return (
+      <div className="min-h-[calc(100vh-3.5rem-1.75rem)] flex flex-col">
+        <div className="fixed inset-0 -z-10">
+          <div className="absolute inset-0 bg-ark-bg" />
+          <div className="absolute inset-0 opacity-[0.02]"
+               style={{ backgroundImage: 'linear-gradient(var(--ark-accent) 1px, transparent 1px), linear-gradient(90deg, var(--ark-accent) 1px, transparent 1px)', backgroundSize: '60px 60px' }} />
+          <div className="absolute inset-0"
+               style={{ background: 'radial-gradient(ellipse 80% 50% at 50% 0%, var(--ark-surface)/60 0%, transparent 60%)' }} />
+        </div>
+
+        <div className="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8 lg:py-10">
+          <div className="flex items-center gap-2 mb-6 font-mono text-[11px] text-ark-muted tracking-widest uppercase">
+            <Link href="/" className="hover:text-ark-accent transition-colors">[ ROOT ]</Link>
+            <span className="text-ark-border">{'//'}</span>
+            <span className="text-ark-accent">{category}</span>
+          </div>
+          <div className="mb-6 sm:mb-8">
+            <div className="h-0.5 w-8 bg-ark-accent mb-4" />
+            <h1 className="text-2xl sm:text-3xl font-thin tracking-widest text-ark-text">{category}</h1>
+            <p className="font-mono text-[11px] text-ark-muted mt-3 tracking-widest uppercase">
+              <span className="text-ark-accent">{'//'}</span> FURNITURE THEMES <span className="text-ark-border">·</span>{' '}
+              <span className="text-ark-text">{themes.length.toString().padStart(3, '0')}</span> ENTRIES
+            </p>
+          </div>
+          <FurnitureBrowser themes={themes} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-[calc(100vh-3.5rem-1.75rem)] overflow-hidden flex flex-col">

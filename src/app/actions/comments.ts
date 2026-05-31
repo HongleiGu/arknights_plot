@@ -22,6 +22,7 @@ export type Anchor =
   | { event_id: number }
   | { gadget_id: number }
   | { text_chunk_id: number }
+  | { furniture_item_id: number }
 
 // The single (column, value) pair of an anchor — used to filter and insert.
 function anchorEntry(a: Anchor): [string, number] {
@@ -33,7 +34,7 @@ function anchorEntry(a: Anchor): [string, number] {
 function anchorRevalidatePath(a: Anchor): string {
   if ('event_option_id' in a || 'event_id' in a)
     return '/[category]/[story]/event/[event]'
-  if ('text_chunk_id' in a)
+  if ('text_chunk_id' in a || 'furniture_item_id' in a)
     return '/[category]/[story]'
   return '/[category]/[story]/[chapter]'
 }

@@ -1,6 +1,6 @@
 """
-Upload all story image assets (icon / title / cover) to Supabase Storage
-and stamp the corresponding SHA1 into stories.{icon,title,cover}_sha1.
+Upload all story image assets (icon / title / cover) to Cloudflare R2 and
+stamp the corresponding SHA1 into stories.{icon,title,cover}_sha1.
 
 Discovery: walks data/img/ for files in one of three name patterns:
     <story>_icon.png      → kind=icon,  column=icon_sha1
@@ -12,20 +12,20 @@ matched against stories.name. If no row matches, the file is logged as
 unmatched. If multiple rows share the same name across categories (rare),
 all are stamped with the same SHA1.
 
-  storage key  :  data/<subdir>/<sha1>.png
+  storage key  :  <subdir>/<sha1>.png
                   subdir ∈ {story-icons, story-titles, story-covers}
   SHA1 input   :  the path relative to data/   (e.g. 'img/乐章/夏日律动/火蓝之心_icon.png')
 
-The bucket name and subdirectory are implicit per kind; the DB only holds
-the SHA1. URL construction lives in src/lib/storage.ts.
+The subdirectory is implicit per kind; the DB only holds the SHA1.
+URL construction lives in src/lib/storage.ts.
 
 Idempotent: rows already carrying the matching SHA1 are skipped, and
-storage uploads upsert.
+storage uploads upsert (R2 put_object always overwrites).
 
 Prereqs:
   • Migrations 001-005 applied.
   • stories registry populated (run parse_plots.py first).
-  • Public bucket 'data' exists in Supabase Storage.
+  • .env with R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET.
 
 Usage:
     python scripts/upload_story_images.py
@@ -41,6 +41,8 @@ import logging
 import os
 from pathlib import Path
 
+import boto3
+from botocore.config import Config
 from dotenv import load_dotenv
 from PIL import Image
 from supabase import create_client, Client
@@ -50,7 +52,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 ROOT     = Path(__file__).parent.parent
 DATA_DIR = ROOT / "data"
 IMG_ROOT = DATA_DIR / "img"
-BUCKET   = "data"
+R2_BUCKET = os.environ.get("R2_BUCKET", "arknights-assets")
 
 # Extensions we recognize as image source files. Non-PNG files are
 # converted to PNG on upload via Pillow so storage stays PNG-only.
@@ -69,6 +71,15 @@ log = logging.getLogger(__name__)
 supabase: Client = create_client(
     os.environ["SUPABASE_URL"],
     os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+)
+
+r2 = boto3.client(
+    "s3",
+    endpoint_url=f'https://{os.environ["R2_ACCOUNT_ID"]}.r2.cloudflarestorage.com',
+    aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+    aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+    region_name="auto",
+    config=Config(signature_version="s3v4"),
 )
 
 
@@ -134,11 +145,8 @@ def upload_file(local: Path, key: str, dry: bool) -> bool:
     if dry:
         return True
     try:
-        supabase.storage.from_(BUCKET).upload(
-            path=key,
-            file=file_bytes_as_png(local),
-            file_options={"content-type": "image/png", "upsert": "true"},
-        )
+        r2.put_object(Bucket=R2_BUCKET, Key=key,
+                      Body=file_bytes_as_png(local), ContentType="image/png")
         return True
     except Exception as e:
         log.error(f"upload failed for {local.name}: {e}")
@@ -164,7 +172,7 @@ def main() -> None:
     by_name: dict[str, list[dict]] = {}
     for s in stories:
         by_name.setdefault(s["name"], []).append(s)
-
+    print(list(by_name.keys())[:5])
     files = collect_files()
     log.info(f"Found {len(files)} png files under {IMG_ROOT.relative_to(ROOT)}")
     log.info(f"DB has {len(stories)} stories")
@@ -173,11 +181,14 @@ def main() -> None:
               "unmatched_name": 0, "failed": 0}
 
     for kind, story_name, local in files:
+        print(story_name)
+        print(by_name.get(story_name))
         if kind not in wanted:
             continue
 
         subdir, col = KIND_META[kind]
-        rows = by_name.get(story_name, [])
+        # Filenames sometimes use '_' where the DB uses '·' (middle dot).
+        rows = by_name.get(story_name) or by_name.get(story_name.replace("_", "·"), [])
         if not rows:
             log.warning(f"[{kind}] no stories.name = {story_name!r}  ({local.relative_to(ROOT)})")
             counts["unmatched_name"] += 1
@@ -187,10 +198,11 @@ def main() -> None:
         sha = sha1_for(rel)
         key = f"{subdir}/{sha}.png"
 
-        # Skip if every matching row already has this SHA1.
-        if all(r.get(col) == sha for r in rows):
-            counts["skipped"] += 1
-            continue
+# disabling this as this is surely uploaded before
+        # # Skip if every matching row already has this SHA1.
+        # if all(r.get(col) == sha for r in rows):
+        #     counts["skipped"] += 1
+        #     continue
 
         if not upload_file(local, key, args.dry_run):
             counts["failed"] += 1
@@ -207,7 +219,7 @@ def main() -> None:
                  .execute())
             counts["stamped"] += 1
 
-        log.info(f"[{kind:>5}] {story_name}  →  {BUCKET}/{key}")
+        log.info(f"[{kind:>5}] {story_name}  →  {R2_BUCKET}/{key}")
 
     log.info("---")
     for k, v in counts.items():

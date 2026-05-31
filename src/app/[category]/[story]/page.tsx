@@ -8,6 +8,7 @@ import CharacterRecords, { type CharacterRecord } from '@/components/CharacterRe
 import EndingSection, { type EndingSup } from '@/components/EndingSection'
 import PersonnelFileSection, { type TextChunk } from '@/components/PersonnelFileSection'
 import VoiceRecordSection from '@/components/VoiceRecordSection'
+import FurnitureItemGrid, { type FurnitureItem } from '@/components/FurnitureItemGrid'
 
 interface Props {
   params: Promise<{ category: string; story: string }>
@@ -15,6 +16,7 @@ interface Props {
 
 const IS_CATEGORY = '集成战略'
 const OP_CATEGORY = '干员'
+const FU_CATEGORY = '家具'
 
 // 集成战略 chapter level codes: one prologue (RO?-BEG) + N endings
 // (RO?-END-n). 刻俄柏 has no theme digit (RO-BEG / RO-END-n) — \d* covers both.
@@ -28,13 +30,14 @@ export default async function StoryPage({ params }: Props) {
   const storyName = decodeURIComponent(encodedStory)
   const isIS = category === IS_CATEGORY
   const isOp = category === OP_CATEGORY
+  const isFurniture = category === FU_CATEGORY
 
   const supabase = await createClient()
 
   // Resolve the story row first; everything else hangs off its id.
   const { data: story, error: storyErr } = await supabase
     .from('stories')
-    .select('id, name, description')
+    .select('id, name, description, arc')
     .eq('category', category)
     .eq('name', storyName)
     .maybeSingle()
@@ -67,6 +70,25 @@ export default async function StoryPage({ params }: Props) {
     ])
     personnelFile = (pfCluster?.text_chunks ?? []) as TextChunk[]
     voiceRecords  = (vrCluster?.text_chunks  ?? []) as TextChunk[]
+  }
+
+  // 家具: furniture_items (direct story_id FK; theme metadata stored per-item).
+  let furnitureItems: FurnitureItem[] = []
+  let furnitureMeta: { section: string; date_added: string | null; acquisition: string | null; atmo_total: number | null } | null = null
+  if (isFurniture) {
+    const { data: fi } = await supabase
+      .from('furniture_items')
+      .select('id, name, wiki_href, description, atmo_value, icon_sha1, seq, atmo_total, date_added, acquisition')
+      .eq('story_id', story.id)
+      .order('seq')
+    furnitureItems = (fi ?? []) as FurnitureItem[]
+    const first = (fi ?? [])[0] as (FurnitureItem & { atmo_total: number | null; date_added: string | null; acquisition: string | null }) | undefined
+    furnitureMeta = {
+      section:     story.arc ?? '',
+      date_added:  first?.date_added ?? null,
+      acquisition: first?.acquisition ?? null,
+      atmo_total:  first?.atmo_total ?? null,
+    }
   }
 
   // 集成战略 themes carry relics (006), events (007), supplementary text (008).
@@ -110,9 +132,59 @@ export default async function StoryPage({ params }: Props) {
 
   const chapterList = chapters ?? []
 
-  // Non-IS stories must have chapters (unchanged). IS themes are valid with
-  // any of chapters / relics / events / records.
-  if (chErr && !isIS && !isOp) notFound()
+  if (chErr && !isIS && !isOp && !isFurniture) notFound()
+
+  // ---------------------------------------------------------------------
+  // 家具: theme metadata + individual pieces.
+  // ---------------------------------------------------------------------
+  if (isFurniture) {
+    if (furnitureItems.length === 0 && !story.description) notFound()
+
+    const sections: { key: string; cn: string; en: string }[] = [
+      { key: 'pieces', cn: '家具', en: 'PIECES' },
+    ]
+    const aid = (key: string) => `sec-${key}`
+    const num = (key: string) =>
+      (sections.findIndex(s => s.key === key) + 1).toString().padStart(2, '0')
+
+    return (
+      <PageShell
+        category={category}
+        encodedCategory={encodedCategory}
+        storyName={storyName}
+        description={story.description}
+        kicker="FURNITURE THEME"
+      >
+        {/* Metadata strip */}
+        {furnitureMeta && (
+          <div className="mb-10 flex flex-wrap gap-6 font-mono text-[10px] tracking-widest uppercase text-ark-muted">
+            {furnitureMeta.section && (
+              <span>
+                <span className="text-ark-accent">{'//'}</span>{' '}
+                {furnitureMeta.section}
+              </span>
+            )}
+            {furnitureMeta.atmo_total != null && (
+              <span>
+                <span className="text-ark-accent">{'//'}</span>{' '}
+                ATM <span className="text-ark-text">{furnitureMeta.atmo_total}</span>
+              </span>
+            )}
+            {furnitureMeta.date_added && (
+              <span className="normal-case">{furnitureMeta.date_added}</span>
+            )}
+          </div>
+        )}
+
+        <FurnitureItemGrid
+          items={furnitureItems}
+          id={aid('pieces')}
+          labelEn={`PIECES · ${num('pieces')}`}
+          labelCn="家具"
+        />
+      </PageShell>
+    )
+  }
 
   // ---------------------------------------------------------------------
   // 干员: chapters (密录) + personnel file + voice records.

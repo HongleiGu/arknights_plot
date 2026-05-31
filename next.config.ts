@@ -3,7 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   /* config options here */
   images: {
-    domains: [new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || '').host],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'pub-42f3c13ba55547428f5aa143303b7ad7.r2.dev',
+      },
+    ],
   },
 };
 

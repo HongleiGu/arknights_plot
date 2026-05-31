@@ -53,6 +53,9 @@ DROP TABLE IF EXISTS gadgets;
 DROP TABLE IF EXISTS event_options;
 DROP TABLE IF EXISTS events;
 
+-- Furniture (010): items → stories
+DROP TABLE IF EXISTS furniture_items;
+
 -- The registry itself
 DROP TABLE IF EXISTS stories;
 

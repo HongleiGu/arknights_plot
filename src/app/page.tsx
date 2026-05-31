@@ -8,6 +8,7 @@ const CATEGORIES = [
   { id: '生息演算', latin: 'RECLAMATION',    name: '生息演算', desc: '生息演算剧情' },
   { id: '特殊',     latin: 'SPECIAL',        name: '特殊剧情', desc: '隐藏与特殊内容' },
   { id: '干员',     latin: 'OPERATOR',       name: '干员密录', desc: '干员个人故事档案' },
+  { id: '家具',     latin: 'FURNITURE',      name: '家具图鉴', desc: '基建家具与装饰主题' },
 ]
 
 export default function HomePage() {
