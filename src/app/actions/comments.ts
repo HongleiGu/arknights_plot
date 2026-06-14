@@ -18,6 +18,18 @@ export interface CommentRow {
   // deleted_at non-null = tombstone (body blanked, row + replies kept).
   updated_at: string
   deleted_at: string | null
+  // Moderation (014): when deleted, removed_by non-null = a mod removed it
+  // (vs the author self-deleting), so the tombstone can differ.
+  removed_by: number | null
+  // Reactions (015): per-emoji tallies for this comment; `mine` = the caller
+  // already reacted with that emoji.
+  reactions: ReactionTally[]
+}
+
+export interface ReactionTally {
+  emoji: string
+  count: number
+  mine: boolean
 }
 
 /**
@@ -104,7 +116,7 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
 
   const { data: comments } = await supabase
     .from('comments')
-    .select('id, user_id, body, created_at, updated_at, deleted_at, parent_comment_id, reply_to_comment_id')
+    .select('id, user_id, body, created_at, updated_at, deleted_at, removed_by, parent_comment_id, reply_to_comment_id')
     .in('id', commentIds)
     .order('created_at', { ascending: true })
   if (!comments) return []
@@ -123,6 +135,41 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
     comments.map(c => [c.id, userMap.get(c.user_id)?.display_name ?? null]),
   )
 
+  // Current user's users.id (for the `mine` flag) — they may not be among the
+  // authors loaded above, so fall back to a lookup.
+  let myUserId: number | null = null
+  if (user) {
+    for (const u of userMap.values()) if (u.clerk_id === user.id) { myUserId = u.id; break }
+    if (myUserId === null) {
+      const { data: meRow } = await supabase
+        .from('users').select('id').eq('clerk_id', user.id).maybeSingle()
+      myUserId = meRow?.id ?? null
+    }
+  }
+
+  // Reaction tallies per comment (one query over the whole thread).
+  const { data: reactions } = await supabase
+    .from('comment_reactions')
+    .select('comment_id, emoji, user_id')
+    .in('comment_id', commentIds)
+  const reactionsByComment = new Map<number, Map<string, { count: number; mine: boolean }>>()
+  for (const r of reactions ?? []) {
+    let m = reactionsByComment.get(r.comment_id)
+    if (!m) { m = new Map(); reactionsByComment.set(r.comment_id, m) }
+    let t = m.get(r.emoji)
+    if (!t) { t = { count: 0, mine: false }; m.set(r.emoji, t) }
+    t.count++
+    if (myUserId != null && r.user_id === myUserId) t.mine = true
+  }
+  const talliesFor = (id: number): ReactionTally[] => {
+    const m = reactionsByComment.get(id)
+    return m
+      ? [...m.entries()]
+          .map(([emoji, t]) => ({ emoji, count: t.count, mine: t.mine }))
+          .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji))
+      : []
+  }
+
   return comments.map(c => {
     const u = userMap.get(c.user_id)
     const deleted = c.deleted_at != null
@@ -140,6 +187,8 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
         : null,
       updated_at:            c.updated_at,
       deleted_at:            c.deleted_at ?? null,
+      removed_by:            c.removed_by ?? null,
+      reactions:             talliesFor(c.id),
     }
   })
 }
@@ -215,8 +264,45 @@ export async function addCommentTo(
       reply_to_display_name: replyToName,
       updated_at:            comment.updated_at,
       deleted_at:            comment.deleted_at ?? null,
+      removed_by:            null,
+      reactions:             [],
     },
   }
+}
+
+/**
+ * Toggle the caller's reaction with `emoji` on a comment: add it if absent,
+ * remove it if present. Returns the resulting state (`reacted`). The
+ * UNIQUE(comment_id, user_id, emoji) constraint makes a concurrent double-add
+ * a no-op (23505 → treat as reacted).
+ */
+export async function toggleReaction(
+  commentId: number,
+  emoji: string,
+): Promise<{ ok: true; reacted: boolean } | { ok: false; error: string }> {
+  const userId = await ensureUserRow()
+  if (userId === null) return { ok: false, error: 'not signed in' }
+
+  const supabase = await createClient()
+  const { data: existing } = await supabase
+    .from('comment_reactions')
+    .select('id')
+    .eq('comment_id', commentId)
+    .eq('user_id', userId)
+    .eq('emoji', emoji)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase.from('comment_reactions').delete().eq('id', existing.id)
+    if (error) return { ok: false, error: error.message }
+    return { ok: true, reacted: false }
+  }
+
+  const { error } = await supabase
+    .from('comment_reactions')
+    .insert({ comment_id: commentId, user_id: userId, emoji })
+  if (error && error.code !== '23505') return { ok: false, error: error.message }
+  return { ok: true, reacted: true }
 }
 
 /**
@@ -286,4 +372,141 @@ export async function addCommentToNode(
   body: string,
 ): Promise<{ ok: true; comment: CommentRow } | { ok: false; error: string }> {
   return addCommentTo({ node_id: nodeId }, body)
+}
+
+// ---- moderation (014) ------------------------------------------------------
+
+/** The caller's users.id + is_admin, or null if not signed in / no row yet. */
+async function currentUser(): Promise<{ id: number; is_admin: boolean } | null> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase
+    .from('users')
+    .select('id, is_admin')
+    .eq('clerk_id', user.id)
+    .maybeSingle()
+  return data ? { id: data.id, is_admin: !!data.is_admin } : null
+}
+
+export async function isCurrentUserAdmin(): Promise<boolean> {
+  const u = await currentUser()
+  return !!u?.is_admin
+}
+
+/**
+ * File a report against a comment. One per (comment, reporter); re-reporting
+ * hits the UNIQUE constraint and is treated as a success (idempotent).
+ */
+export async function reportComment(
+  commentId: number,
+  reason: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const userId = await ensureUserRow()
+  if (userId === null) return { ok: false, error: 'not signed in' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('comment_reports')
+    .insert({ comment_id: commentId, reporter_id: userId, reason: reason.trim() || null })
+  if (error && error.code !== '23505') return { ok: false, error: error.message } // 23505 = already reported
+  return { ok: true }
+}
+
+/**
+ * Admin: remove any comment — soft-delete (like 013) but stamps removed_by so
+ * the tombstone reads as a mod removal. RLS ("admin moderate") is the real
+ * gate; the is_admin check here just gives a clean error.
+ */
+export async function modRemoveComment(
+  commentId: number,
+): Promise<{ ok: true; deleted_at: string; removed_by: number } | { ok: false; error: string }> {
+  const me = await currentUser()
+  if (!me) return { ok: false, error: 'not signed in' }
+  if (!me.is_admin) return { ok: false, error: 'not an admin' }
+
+  const supabase = await createClient()
+  const deleted_at = new Date().toISOString()
+  const { data, error } = await supabase
+    .from('comments')
+    .update({ deleted_at, removed_by: me.id, body: '' })
+    .eq('id', commentId)
+    .select('id')
+    .maybeSingle()
+  if (error) return { ok: false, error: error.message }
+  if (!data) return { ok: false, error: 'not found' }
+  revalidatePath('/mod', 'page')
+  return { ok: true, deleted_at, removed_by: me.id }
+}
+
+export interface ReportRow {
+  id: number
+  reason: string | null
+  created_at: string
+  reporter_name: string | null
+  comment_id: number
+  comment_body: string
+  comment_deleted: boolean
+  comment_author: string | null
+}
+
+/** Admin: unresolved reports for the mod queue (empty for non-admins). */
+export async function listOpenReports(): Promise<ReportRow[]> {
+  const me = await currentUser()
+  if (!me?.is_admin) return []
+
+  const supabase = await createClient()
+  const { data: reports } = await supabase
+    .from('comment_reports')
+    .select('id, reason, created_at, reporter_id, comment_id')
+    .is('resolved_at', null)
+    .order('created_at', { ascending: true })
+  if (!reports || reports.length === 0) return []
+
+  const commentIds = [...new Set(reports.map(r => r.comment_id))]
+  const { data: comments } = await supabase
+    .from('comments')
+    .select('id, body, deleted_at, user_id')
+    .in('id', commentIds)
+  const cMap = new Map((comments ?? []).map(c => [c.id, c]))
+
+  const authorIds = (comments ?? []).map(c => c.user_id)
+  const reporterIds = reports.map(r => r.reporter_id)
+  const { data: users } = await supabase
+    .from('users')
+    .select('id, display_name')
+    .in('id', [...new Set([...reporterIds, ...authorIds])])
+  const uMap = new Map((users ?? []).map(u => [u.id, u.display_name]))
+
+  return reports.map(r => {
+    const c = cMap.get(r.comment_id)
+    return {
+      id:              r.id,
+      reason:          r.reason,
+      created_at:      r.created_at,
+      reporter_name:   uMap.get(r.reporter_id) ?? null,
+      comment_id:      r.comment_id,
+      comment_body:    c ? (c.deleted_at ? '' : c.body) : '',
+      comment_deleted: !!c?.deleted_at,
+      comment_author:  c ? (uMap.get(c.user_id) ?? null) : null,
+    }
+  })
+}
+
+/** Admin: mark a report resolved. */
+export async function resolveReport(
+  reportId: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const me = await currentUser()
+  if (!me) return { ok: false, error: 'not signed in' }
+  if (!me.is_admin) return { ok: false, error: 'not an admin' }
+
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('comment_reports')
+    .update({ resolved_at: new Date().toISOString(), resolved_by: me.id })
+    .eq('id', reportId)
+  if (error) return { ok: false, error: error.message }
+  revalidatePath('/mod', 'page')
+  return { ok: true }
 }

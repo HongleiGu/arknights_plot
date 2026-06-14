@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import CommentThread from '@/components/CommentThread'
 import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
+import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
 
 const PAGE_SIZE = 100
 
@@ -40,39 +41,44 @@ interface Props {
 
 
 export default async function ChapterPage({ params, searchParams }: Props) {
-  const { category: encCategory, story: encStory, chapter: chapterIdStr } = await params
+  const { category: encCategory, story: encStory, chapter: chapterSeg } = await params
   const { page: pageStr } = await searchParams
 
   const category   = decodeURIComponent(encCategory)
   const storyName  = decodeURIComponent(encStory)
-  const chapterId  = parseInt(chapterIdStr, 10)
+  const order      = parseChapterOrder(chapterSeg)
   const page       = Math.max(1, parseInt(pageStr ?? '1', 10) || 1)
 
-  if (Number.isNaN(chapterId)) notFound()
+  if (Number.isNaN(order)) notFound()
 
   const supabase = await createClient()
 
-  // ---- 1. Resolve chapter (and its story) ----
+  // ---- 1. Resolve story, then the chapter by its order within it ----
+  // The URL segment is `<order_in_story>-<slug>` (see lib/chapterSlug); only the
+  // leading order int is load-bearing, and the lookup is scoped to the
+  // (category, name) story — so a chapter can't be reached under the wrong
+  // story, and the slug tail is free to change without breaking links.
+  const { data: story } = await supabase
+    .from('stories')
+    .select('id')
+    .eq('category', category)
+    .eq('name', storyName)
+    .maybeSingle()
+
+  if (!story) notFound()
+
   // `stage` is intentionally omitted — it's being phased out of the schema;
   // we recover the stage code from file_path for display.
   const { data: chapter, error: chErr } = await supabase
     .from('chapters')
-    .select(`
-      id, story_id, level_code, level_name, file_path, order_in_story,
-      stories ( id, name, name_en, category )
-    `)
-    .eq('id', chapterId)
+    .select('id, story_id, level_code, level_name, file_path, order_in_story')
+    .eq('story_id', story.id)
+    .eq('order_in_story', order)
     .maybeSingle()
 
   if (chErr || !chapter) notFound()
 
-  // Sanity-check the URL: the (category, story) in the URL must match the
-  // chapter's parent story. Prevents a /主线/X/123 from rendering chapter
-  // 123 even if that chapter actually belongs to a different story.
-  const parent = Array.isArray(chapter.stories) ? chapter.stories[0] : chapter.stories
-  if (!parent || parent.category !== category || parent.name !== storyName) {
-    notFound()
-  }
+  const chapterId = chapter.id
 
   // ---- 2. Total node count + paginated nodes ----
   // Branch dialogue now also lives in `nodes` (branch_id set); the linear
@@ -222,6 +228,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   }
 
   // ---- View helpers ----
+  const encChapter = encodeURIComponent(chapterSlug(chapter)) // canonical segment for pager links
   const stage      = stageFromPath(chapter.file_path)
   const stageLabel = stage ? ` · ${stage}` : ''
   const levelLine  = [chapter.level_code, chapter.level_name].filter(Boolean).join(' ')
@@ -324,7 +331,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
           <nav className="mt-12 flex items-center justify-between font-mono text-[11px] tracking-widest uppercase">
             <PagerLink
               href={safePage > 1
-                ? `/${encCategory}/${encStory}/${chapter.id}?page=${safePage - 1}`
+                ? `/${encCategory}/${encStory}/${encChapter}?page=${safePage - 1}`
                 : null}
               label="← PREV"
             />
@@ -335,7 +342,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
             </span>
             <PagerLink
               href={safePage < pageCount
-                ? `/${encCategory}/${encStory}/${chapter.id}?page=${safePage + 1}`
+                ? `/${encCategory}/${encStory}/${encChapter}?page=${safePage + 1}`
                 : null}
               label="NEXT →"
             />

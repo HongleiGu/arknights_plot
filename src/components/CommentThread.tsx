@@ -7,10 +7,17 @@ import {
   addCommentTo,
   deleteComment,
   editComment,
+  isCurrentUserAdmin,
   listCommentsFor,
+  modRemoveComment,
+  reportComment,
+  toggleReaction,
   type Anchor,
   type CommentRow,
 } from '@/app/actions/comments'
+
+// Curated reaction set — small + themed, no full emoji picker.
+const REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🤔']
 
 interface Props {
   anchor: Anchor
@@ -48,12 +55,14 @@ export default function CommentThread({ anchor, initialCount }: Props) {
   const [replyBody,   setReplyBody]   = useState('')
   const [replyError,  setReplyError]  = useState<string | null>(null)
   const [convoFor,    setConvoFor]    = useState<number | null>(null) // open conversation panel for this comment
+  const [isAdmin,     setIsAdmin]     = useState(false)
 
   async function toggle() {
     if (!open && !loaded) {
-      const rows = await listCommentsFor(anchor)
+      const [rows, admin] = await Promise.all([listCommentsFor(anchor), isCurrentUserAdmin()])
       setComments(rows)
       setCount(rows.length)
+      setIsAdmin(admin)
       setLoaded(true)
     }
     setOpen(o => !o)
@@ -118,6 +127,24 @@ export default function CommentThread({ anchor, initialCount }: Props) {
     setComments(prev => prev.map(c => (c.id === id ? { ...c, deleted_at, body: '' } : c)))
   }
 
+  function applyModDelete(id: number, deleted_at: string, removed_by: number) {
+    setComments(prev => prev.map(c => (c.id === id ? { ...c, deleted_at, removed_by, body: '' } : c)))
+  }
+
+  // Optimistically fold a toggled reaction into the comment's tallies.
+  function applyReaction(id: number, emoji: string, reacted: boolean) {
+    setComments(prev => prev.map(c => {
+      if (c.id !== id) return c
+      const tallies = c.reactions.filter(r => r.emoji !== emoji)
+      const prevTally = c.reactions.find(r => r.emoji === emoji)
+      const prevCount = prevTally?.count ?? 0
+      const count = reacted ? prevCount + (prevTally?.mine ? 0 : 1) : Math.max(0, prevCount - 1)
+      if (count > 0) tallies.push({ emoji, count, mine: reacted })
+      tallies.sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji))
+      return { ...c, reactions: tallies }
+    }))
+  }
+
   // Close the conversation panel on Escape.
   useEffect(() => {
     if (convoFor == null) return
@@ -167,9 +194,12 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                   <div key={root.id} className="space-y-2">
                     <CommentItem
                       c={root}
+                      isAdmin={isAdmin}
                       onReply={() => setReplyTo({ parentId: root.id, replyToId: root.id, toName: root.display_name })}
                       onEdited={(b, u) => applyEdit(root.id, b, u)}
                       onDeleted={d => applyDelete(root.id, d)}
+                      onModRemoved={(d, by) => applyModDelete(root.id, d, by)}
+                      onReact={(e, r) => applyReaction(root.id, e, r)}
                     />
 
                     {replyTo?.replyToId === root.id && (
@@ -201,11 +231,14 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                           <div key={r.id} className="space-y-2">
                             <CommentItem
                               c={r}
+                              isAdmin={isAdmin}
                               onReply={() => setReplyTo({ parentId: root.id, replyToId: r.id, toName: r.display_name })}
                               onViewConvo={r.reply_to_comment_id != null && r.reply_to_comment_id !== root.id
                                 ? () => setConvoFor(r.id) : undefined}
                               onEdited={(b, u) => applyEdit(r.id, b, u)}
                               onDeleted={d => applyDelete(r.id, d)}
+                              onModRemoved={(d, by) => applyModDelete(r.id, d, by)}
+                              onReact={(e, rc) => applyReaction(r.id, e, rc)}
                             />
                             {replyTo?.replyToId === r.id && (
                               <ReplyForm
@@ -264,20 +297,30 @@ function mentionName(c: CommentRow): string | null {
     : null
 }
 
+// Tombstone wording differs by who removed it (014): author vs moderator.
+function tombstone(c: CommentRow): string {
+  return c.removed_by != null ? '// [已被管理员移除]' : '// [已删除]'
+}
+
 
 function CommentItem({
-  c, onReply, onViewConvo, onEdited, onDeleted,
+  c, isAdmin, onReply, onViewConvo, onEdited, onDeleted, onModRemoved, onReact,
 }: {
   c: CommentRow
+  isAdmin?: boolean
   onReply?: () => void
   onViewConvo?: () => void
   onEdited?: (body: string, updated_at: string) => void
   onDeleted?: (deleted_at: string) => void
+  onModRemoved?: (deleted_at: string, removed_by: number) => void
+  onReact?: (emoji: string, reacted: boolean) => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [draft,   setDraft]   = useState(c.body)
-  const [err,     setErr]     = useState<string | null>(null)
-  const [busy,    startBusy]  = useTransition()
+  const [editing,  setEditing]  = useState(false)
+  const [draft,    setDraft]    = useState(c.body)
+  const [err,      setErr]      = useState<string | null>(null)
+  const [reported, setReported] = useState(false)
+  const [picker,   setPicker]   = useState(false)
+  const [busy,     startBusy]   = useTransition()
 
   const deleted = c.deleted_at != null
   const edited  = !deleted && c.updated_at !== c.created_at
@@ -293,7 +336,7 @@ function CommentItem({
     return (
       <div id={`cmt-${c.id}`} className="text-sm">
         <p className="font-mono text-[10px] text-ark-border tracking-widest italic">
-          {'// [已删除]'}
+          {tombstone(c)}
         </p>
       </div>
     )
@@ -322,7 +365,41 @@ function CommentItem({
     })
   }
 
+  function report() {
+    const reason = window.prompt('举报理由（可选）：')
+    if (reason === null) return // cancelled
+    setErr(null)
+    startBusy(async () => {
+      const res = await reportComment(c.id, reason)
+      if (!res.ok) { setErr(res.error); return }
+      setReported(true)
+    })
+  }
+
+  function modRemove() {
+    if (!window.confirm('管理员移除这条评论？')) return
+    setErr(null)
+    startBusy(async () => {
+      const res = await modRemoveComment(c.id)
+      if (!res.ok) { setErr(res.error); return }
+      onModRemoved?.(res.deleted_at, res.removed_by)
+    })
+  }
+
+  function react(emoji: string) {
+    setPicker(false)
+    setErr(null)
+    startBusy(async () => {
+      const res = await toggleReaction(c.id, emoji)
+      if (!res.ok) { setErr(res.error); return }
+      onReact?.(emoji, res.reacted)
+    })
+  }
+
   const canManage = c.is_mine && (onEdited || onDeleted)
+  // Others' live comments are reportable; admins can also remove them.
+  const showReport = !c.is_mine
+  const showModRemove = !!isAdmin && !c.is_mine
 
   return (
     <div id={`cmt-${c.id}`} className="text-sm">
@@ -381,8 +458,57 @@ function CommentItem({
         </p>
       )}
 
-      {!editing && (onReply || onViewConvo || canManage) && (
-        <div className="flex gap-4 mt-1">
+      {!editing && onReact && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+          {c.reactions.map(r => (
+            <button
+              key={r.emoji}
+              type="button"
+              disabled={busy}
+              onClick={() => react(r.emoji)}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-xs transition-colors
+                ${r.mine
+                  ? 'border-ark-accent text-ark-accent bg-ark-accent/10'
+                  : 'border-ark-border text-ark-muted hover:border-ark-accent-dim hover:text-ark-text'}
+                disabled:opacity-40`}
+            >
+              <span>{r.emoji}</span>
+              <span className="font-mono text-[10px]">{r.count}</span>
+            </button>
+          ))}
+          <div className="relative">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setPicker(o => !o)}
+              aria-label="add reaction"
+              className="px-1.5 py-0.5 rounded-full border border-ark-border text-ark-border
+                         hover:text-ark-accent hover:border-ark-accent-dim text-xs leading-none
+                         disabled:opacity-40 transition-colors"
+            >
+              ＋
+            </button>
+            {picker && (
+              <div className="absolute left-0 top-full z-10 mt-1 flex gap-0.5 p-1
+                              bg-ark-surface border border-ark-border rounded-sm shadow-lg">
+                {REACTION_EMOJIS.map(e => (
+                  <button
+                    key={e}
+                    type="button"
+                    onClick={() => react(e)}
+                    className="px-1.5 py-0.5 rounded hover:bg-ark-accent/10 text-base leading-none"
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!editing && (onReply || onViewConvo || canManage || showReport || showModRemove) && (
+        <div className="flex flex-wrap gap-4 mt-1">
           {onReply && (
             <button
               type="button"
@@ -424,6 +550,41 @@ function CommentItem({
             >
               {'//'} DELETE
             </button>
+          )}
+          {showReport && (
+            reported ? (
+              <span className="font-mono text-[10px] tracking-widest uppercase text-ark-muted">
+                {'//'} 已举报
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={report}
+                disabled={busy}
+                className="font-mono text-[10px] tracking-widest uppercase
+                           text-ark-border hover:text-ark-danger transition-colors
+                           disabled:opacity-30"
+              >
+                {'//'} REPORT
+              </button>
+            )
+          )}
+          {showModRemove && (
+            <button
+              type="button"
+              onClick={modRemove}
+              disabled={busy}
+              className="font-mono text-[10px] tracking-widest uppercase
+                         text-ark-danger/80 hover:text-ark-danger transition-colors
+                         disabled:opacity-30"
+            >
+              {'//'} REMOVE ⚠
+            </button>
+          )}
+          {err && (
+            <span className="font-mono text-[10px] text-ark-danger tracking-widest">
+              {'// ' + err.toUpperCase()}
+            </span>
           )}
         </div>
       )}
@@ -514,7 +675,7 @@ function ConversationPanel({
                 </p>
                 {c.deleted_at != null ? (
                   <p className="font-mono text-[10px] text-ark-border tracking-widest italic">
-                    {'// [已删除]'}
+                    {tombstone(c)}
                   </p>
                 ) : (
                   <p className="text-ark-text leading-relaxed whitespace-pre-wrap">

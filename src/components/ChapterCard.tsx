@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { chapterSlug } from '@/lib/chapterSlug'
 
 interface ChapterCardProps {
   category: string
@@ -13,7 +14,7 @@ interface ChapterCardProps {
 }
 
 export default function ChapterCard({ category, storyName, chapter }: ChapterCardProps) {
-  const href = `/${encodeURIComponent(category)}/${encodeURIComponent(storyName)}/${chapter.id}`
+  const href = `/${encodeURIComponent(category)}/${encodeURIComponent(storyName)}/${encodeURIComponent(chapterSlug(chapter))}`
 
   // Display: "GT-1 日正当中 · BEG"; falls back gracefully if any piece is null.
   const head = [chapter.level_code, chapter.level_name].filter(Boolean).join(' ')
