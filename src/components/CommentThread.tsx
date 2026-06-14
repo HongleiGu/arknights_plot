@@ -56,6 +56,7 @@ export default function CommentThread({ anchor, initialCount }: Props) {
   const [replyError,  setReplyError]  = useState<string | null>(null)
   const [convoFor,    setConvoFor]    = useState<number | null>(null) // open conversation panel for this comment
   const [isAdmin,     setIsAdmin]     = useState(false)
+  const [highlightId, setHighlightId] = useState<number | null>(null) // permalink target
 
   async function toggle() {
     if (!open && !loaded) {
@@ -153,6 +154,42 @@ export default function CommentThread({ anchor, initialCount }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [convoFor])
 
+  // Permalink (#cmt-<id>): if the hash targets a comment in THIS thread,
+  // auto-open it, expand its root if it's a reply, and highlight it. Only
+  // threads that actually have comments load, so it stays cheap.
+  useEffect(() => {
+    if (initialCount <= 0) return
+    const m = window.location.hash.match(/^#cmt-(\d+)$/)
+    if (!m) return
+    const target = parseInt(m[1], 10)
+    let cancelled = false
+    void (async () => {
+      const [rows, admin] = await Promise.all([listCommentsFor(anchor), isCurrentUserAdmin()])
+      if (cancelled) return
+      const hit = rows.find(r => r.id === target)
+      if (!hit) return
+      setComments(rows)
+      setCount(rows.length)
+      setIsAdmin(admin)
+      setLoaded(true)
+      setOpen(true)
+      if (hit.parent_comment_id != null) setExpanded(prev => new Set(prev).add(hit.parent_comment_id!))
+      setHighlightId(target)
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Scroll to + briefly ring the highlighted comment once it's rendered.
+  useEffect(() => {
+    if (highlightId == null) return
+    const scroll = setTimeout(() => {
+      document.getElementById(`cmt-${highlightId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 60)
+    const clear = setTimeout(() => setHighlightId(null), 2400)
+    return () => { clearTimeout(scroll); clearTimeout(clear) }
+  }, [highlightId])
+
   // Assemble the 2-level tree from the flat list.
   const roots = comments.filter(c => c.parent_comment_id == null)
   const repliesByRoot = new Map<number, CommentRow[]>()
@@ -195,6 +232,7 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                     <CommentItem
                       c={root}
                       isAdmin={isAdmin}
+                      highlight={highlightId === root.id}
                       onReply={() => setReplyTo({ parentId: root.id, replyToId: root.id, toName: root.display_name })}
                       onEdited={(b, u) => applyEdit(root.id, b, u)}
                       onDeleted={d => applyDelete(root.id, d)}
@@ -232,6 +270,7 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                             <CommentItem
                               c={r}
                               isAdmin={isAdmin}
+                              highlight={highlightId === r.id}
                               onReply={() => setReplyTo({ parentId: root.id, replyToId: r.id, toName: r.display_name })}
                               onViewConvo={r.reply_to_comment_id != null && r.reply_to_comment_id !== root.id
                                 ? () => setConvoFor(r.id) : undefined}
@@ -304,10 +343,11 @@ function tombstone(c: CommentRow): string {
 
 
 function CommentItem({
-  c, isAdmin, onReply, onViewConvo, onEdited, onDeleted, onModRemoved, onReact,
+  c, isAdmin, highlight, onReply, onViewConvo, onEdited, onDeleted, onModRemoved, onReact,
 }: {
   c: CommentRow
   isAdmin?: boolean
+  highlight?: boolean
   onReply?: () => void
   onViewConvo?: () => void
   onEdited?: (body: string, updated_at: string) => void
@@ -402,7 +442,11 @@ function CommentItem({
   const showModRemove = !!isAdmin && !c.is_mine
 
   return (
-    <div id={`cmt-${c.id}`} className="text-sm">
+    <div
+      id={`cmt-${c.id}`}
+      className={`text-sm rounded-sm transition-colors
+                  ${highlight ? 'ring-1 ring-ark-accent bg-ark-surface px-2 py-1 -mx-2' : ''}`}
+    >
       <p className="font-mono text-[10px] text-ark-muted tracking-widest mb-0.5">
         <span className={c.is_mine ? 'text-ark-success' : 'text-ark-accent'}>
           {c.display_name ?? 'anon'}

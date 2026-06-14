@@ -1,12 +1,29 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/actions/auth'
+import NotificationBell from '@/components/NotificationBell'
 
 export default async function Header() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   const displayName = user?.user_metadata?.display_name ?? user?.email ?? null
+
+  // Seed the notification bell (users.id + unread count) for signed-in users.
+  let bellUserId: number | null = null
+  let bellUnread = 0
+  if (user) {
+    const { data: me } = await supabase.from('users').select('id').eq('clerk_id', user.id).maybeSingle()
+    if (me) {
+      bellUserId = me.id
+      const { count } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', me.id)
+        .is('read_at', null)
+      bellUnread = count ?? 0
+    }
+  }
 
   return (
     <header
@@ -47,6 +64,9 @@ export default async function Header() {
         <div className="flex items-center gap-3 text-ark-muted">
           {user ? (
             <>
+              {bellUserId != null && (
+                <NotificationBell userId={bellUserId} initialUnread={bellUnread} />
+              )}
               <span className="tracking-widest uppercase">
                 [ <span className="text-ark-success">●</span>{' '}
                 <span className="text-ark-text normal-case">{displayName}</span>{' '}]

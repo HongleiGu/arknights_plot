@@ -238,7 +238,8 @@ export async function addCommentTo(
   const { data: u } = await supabase
     .from('users').select('display_name').eq('id', userId).single()
 
-  // Resolve the @-mentioned comment's author for the returned row.
+  // Resolve the @-mentioned comment's author for the returned row, and notify
+  // them that they were replied to / mentioned (016).
   let replyToName: string | null = null
   if (comment.reply_to_comment_id != null) {
     const { data: ref } = await supabase
@@ -249,6 +250,18 @@ export async function addCommentTo(
     // users:user_id is a 1-row embed; pgrest may type it as object or array.
     const embed = ref?.users as { display_name: string | null } | { display_name: string | null }[] | null
     replyToName = Array.isArray(embed) ? embed[0]?.display_name ?? null : embed?.display_name ?? null
+
+    // Don't notify yourself; type distinguishes a direct reply to a top-level
+    // comment from an @-mention of a sibling reply.
+    if (ref?.user_id != null && ref.user_id !== userId) {
+      const type = comment.reply_to_comment_id === comment.parent_comment_id ? 'reply' : 'mention'
+      await supabase.from('notifications').insert({
+        user_id:    ref.user_id,
+        actor_id:   userId,
+        type,
+        comment_id: comment.id,
+      })
+    }
   }
 
   return {
