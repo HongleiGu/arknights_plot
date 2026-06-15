@@ -2,6 +2,12 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { verifyTurnstile } from '@/lib/turnstile'
+import { parseReferences, resolveReferences, type ReferenceData } from '@/lib/references'
+
+// Per-user rate limit for new comments (AP-8): max N in the trailing window.
+const RATE_WINDOW_MS = 60_000
+const RATE_MAX = 10
 
 export interface CommentRow {
   id: number
@@ -24,6 +30,8 @@ export interface CommentRow {
   // Reactions (015): per-emoji tallies for this comment; `mine` = the caller
   // already reacted with that emoji.
   reactions: ReactionTally[]
+  // Cross-references (AP-2): resolved @type/id tokens found in the body.
+  references: ReferenceData[]
 }
 
 export interface ReactionTally {
@@ -116,27 +124,49 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
 
   const { data: comments } = await supabase
     .from('comments')
-    .select('id, user_id, body, created_at, updated_at, deleted_at, removed_by, parent_comment_id, reply_to_comment_id')
+    .select(COMMENT_COLS)
     .in('id', commentIds)
     .order('created_at', { ascending: true })
-  if (!comments) return []
+  return enrichComments(supabase, (comments ?? []) as RawCommentRow[], user)
+}
+
+// Columns selected for a comment row everywhere.
+const COMMENT_COLS =
+  'id, user_id, body, created_at, updated_at, deleted_at, removed_by, parent_comment_id, reply_to_comment_id'
+
+interface RawCommentRow {
+  id: number
+  user_id: number
+  body: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+  removed_by: number | null
+  parent_comment_id: number | null
+  reply_to_comment_id: number | null
+}
+
+type Db = Awaited<ReturnType<typeof createClient>>
+
+/**
+ * Turn raw comment rows into CommentRow[]: author names, the @-mentioned
+ * author, the caller's `mine`/ownership flags, and reaction tallies. The
+ * passed set must be self-contained for reply_to resolution — callers pass a
+ * root together with all of its replies.
+ */
+async function enrichComments(
+  supabase: Db,
+  comments: RawCommentRow[],
+  user: { id: string } | null,
+): Promise<CommentRow[]> {
+  if (comments.length === 0) return []
 
   const userIds = [...new Set(comments.map(c => c.user_id))]
   const { data: users } = await supabase
-    .from('users')
-    .select('id, clerk_id, display_name')
-    .in('id', userIds)
+    .from('users').select('id, clerk_id, display_name').in('id', userIds)
   const userMap = new Map((users ?? []).map(u => [u.id, u]))
+  const nameById = new Map(comments.map(c => [c.id, userMap.get(c.user_id)?.display_name ?? null]))
 
-  // id → author display_name, used to resolve the @-mentioned comment's
-  // author. A reply_to target always shares this anchor (replies get an
-  // anchor row too), so it's already in `comments`.
-  const nameById = new Map(
-    comments.map(c => [c.id, userMap.get(c.user_id)?.display_name ?? null]),
-  )
-
-  // Current user's users.id (for the `mine` flag) — they may not be among the
-  // authors loaded above, so fall back to a lookup.
   let myUserId: number | null = null
   if (user) {
     for (const u of userMap.values()) if (u.clerk_id === user.id) { myUserId = u.id; break }
@@ -147,11 +177,9 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
     }
   }
 
-  // Reaction tallies per comment (one query over the whole thread).
+  const ids = comments.map(c => c.id)
   const { data: reactions } = await supabase
-    .from('comment_reactions')
-    .select('comment_id, emoji, user_id')
-    .in('comment_id', commentIds)
+    .from('comment_reactions').select('comment_id, emoji, user_id').in('comment_id', ids)
   const reactionsByComment = new Map<number, Map<string, { count: number; mine: boolean }>>()
   for (const r of reactions ?? []) {
     let m = reactionsByComment.get(r.comment_id)
@@ -170,12 +198,29 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
       : []
   }
 
+  // Resolve every distinct @type/id across the (live) bodies in one pass.
+  const refKeys = new Map<string, { type: string; id: number }>()
+  for (const c of comments) {
+    if (c.deleted_at != null) continue
+    for (const r of parseReferences(c.body)) refKeys.set(r.key, { type: r.type, id: r.id })
+  }
+  const resolvedRefs = await resolveReferences(supabase, [...refKeys.values()])
+  const refByKey = new Map(resolvedRefs.map(r => [r.key, r]))
+  const refsFor = (body: string): ReferenceData[] => {
+    const seen = new Set<string>()
+    const out: ReferenceData[] = []
+    for (const r of parseReferences(body)) {
+      const hit = refByKey.get(r.key)
+      if (hit && !seen.has(r.key)) { seen.add(r.key); out.push(hit) }
+    }
+    return out
+  }
+
   return comments.map(c => {
     const u = userMap.get(c.user_id)
     const deleted = c.deleted_at != null
     return {
       id:                    c.id,
-      // Don't ship deleted bodies to the client — render a tombstone.
       body:                  deleted ? '' : c.body,
       created_at:            c.created_at,
       display_name:          u?.display_name ?? null,
@@ -189,8 +234,66 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
       deleted_at:            c.deleted_at ?? null,
       removed_by:            c.removed_by ?? null,
       reactions:             talliesFor(c.id),
+      references:            deleted ? [] : refsFor(c.body),
     }
   })
+}
+
+export type CommentSort = 'newest' | 'oldest' | 'top'
+
+/**
+ * A page of TOP-LEVEL comments (sorted) plus all of their replies, for one
+ * anchor. `offset`/`limit` page the roots; replies always travel with their
+ * root. Returns the enriched comments and the total top-level count (so the
+ * client knows whether a "load more" remains).
+ */
+export async function listCommentsPage(
+  anchor: Anchor,
+  sort: CommentSort,
+  offset: number,
+  limit: number,
+): Promise<{ comments: CommentRow[]; totalRoots: number }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  const [col, val] = anchorEntry(anchor)
+
+  const { data: anchors } = await supabase.from('comment_anchors').select('comment_id').eq(col, val)
+  const allIds = (anchors ?? []).map(a => a.comment_id)
+  if (allIds.length === 0) return { comments: [], totalRoots: 0 }
+
+  // Lightweight scan of top-level rows, for ordering + total.
+  const { data: topLite } = await supabase
+    .from('comments').select('id, created_at').in('id', allIds).is('parent_comment_id', null)
+  const tops = (topLite ?? []) as { id: number; created_at: string }[]
+  const totalRoots = tops.length
+  if (totalRoots === 0) return { comments: [], totalRoots: 0 }
+
+  let orderedIds: number[]
+  if (sort === 'top') {
+    const { data: rx } = await supabase
+      .from('comment_reactions').select('comment_id').in('comment_id', tops.map(t => t.id))
+    const counts = new Map<number, number>()
+    for (const r of rx ?? []) counts.set(r.comment_id, (counts.get(r.comment_id) ?? 0) + 1)
+    orderedIds = [...tops]
+      .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0) || (a.created_at < b.created_at ? 1 : -1))
+      .map(t => t.id)
+  } else {
+    const asc = sort === 'oldest'
+    orderedIds = [...tops]
+      .sort((a, b) => (a.created_at < b.created_at ? (asc ? -1 : 1) : (asc ? 1 : -1)))
+      .map(t => t.id)
+  }
+
+  const pageRootIds = orderedIds.slice(offset, offset + limit)
+  if (pageRootIds.length === 0) return { comments: [], totalRoots }
+
+  const [{ data: roots }, { data: replies }] = await Promise.all([
+    supabase.from('comments').select(COMMENT_COLS).in('id', pageRootIds),
+    supabase.from('comments').select(COMMENT_COLS).in('parent_comment_id', pageRootIds),
+  ])
+  const raw = [...(roots ?? []), ...(replies ?? [])] as RawCommentRow[]
+  const enriched = await enrichComments(supabase, raw, user)
+  return { comments: enriched, totalRoots }
 }
 
 /**
@@ -204,16 +307,32 @@ export async function listCommentsFor(anchor: Anchor): Promise<CommentRow[]> {
 export async function addCommentTo(
   anchor: Anchor,
   body: string,
-  opts: { parentId?: number; replyToId?: number } = {},
+  opts: { parentId?: number; replyToId?: number; turnstileToken?: string } = {},
 ): Promise<{ ok: true; comment: CommentRow } | { ok: false; error: string }> {
   body = body.trim()
   if (!body) return { ok: false, error: 'empty body' }
   if (body.length > 4000) return { ok: false, error: 'body too long (max 4000)' }
 
+  // Anti-bot (no-op until Turnstile is configured).
+  if (!(await verifyTurnstile(opts.turnstileToken))) {
+    return { ok: false, error: '人机验证失败，请重试' }
+  }
+
   const userId = await ensureUserRow()
   if (userId === null) return { ok: false, error: 'not signed in' }
 
   const supabase = await createClient()
+
+  // Per-user rate limit: cap new comments in the trailing window.
+  const since = new Date(Date.now() - RATE_WINDOW_MS).toISOString()
+  const { count: recent } = await supabase
+    .from('comments')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .gte('created_at', since)
+  if ((recent ?? 0) >= RATE_MAX) {
+    return { ok: false, error: '发言过于频繁，请稍后再试' }
+  }
   const { data: comment, error: ce } = await supabase
     .from('comments')
     .insert({
@@ -237,6 +356,8 @@ export async function addCommentTo(
 
   const { data: u } = await supabase
     .from('users').select('display_name').eq('id', userId).single()
+
+  const references = await resolveReferences(supabase, parseReferences(comment.body))
 
   // Resolve the @-mentioned comment's author for the returned row, and notify
   // them that they were replied to / mentioned (016).
@@ -279,6 +400,7 @@ export async function addCommentTo(
       deleted_at:            comment.deleted_at ?? null,
       removed_by:            null,
       reactions:             [],
+      references,
     },
   }
 }

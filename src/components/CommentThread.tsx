@@ -4,18 +4,39 @@ import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
 import CommentMarkdown from '@/components/CommentMarkdown'
+import TurnstileWidget, { turnstileConfigured } from '@/components/TurnstileWidget'
+import ImageUploadButton from '@/components/ImageUploadButton'
 import {
   addCommentTo,
   deleteComment,
   editComment,
   isCurrentUserAdmin,
   listCommentsFor,
+  listCommentsPage,
   modRemoveComment,
   reportComment,
   toggleReaction,
   type Anchor,
   type CommentRow,
+  type CommentSort,
 } from '@/app/actions/comments'
+
+const ROOT_PAGE = 10 // top-level comments per page
+
+// Draft image helpers (AP-10): count embedded images, append a new one.
+const MD_IMG_RE = /!\[[^\]]*\]\([^)]*\)/g
+const countImages = (s: string) => (s.match(MD_IMG_RE) || []).length
+const appendMedia = (b: string, md: string) => b + (b && !b.endsWith('\n') ? '\n' : '') + md + '\n'
+
+// Order top-level comments by the active sort (replies stay chronological).
+function sortRoots(roots: CommentRow[], sort: CommentSort): CommentRow[] {
+  const score = (c: CommentRow) => c.reactions.reduce((s, r) => s + r.count, 0)
+  return [...roots].sort((a, b) => {
+    if (sort === 'top') return score(b) - score(a) || (a.created_at < b.created_at ? 1 : -1)
+    if (sort === 'newest') return a.created_at < b.created_at ? 1 : -1
+    return a.created_at < b.created_at ? -1 : 1 // oldest
+  })
+}
 
 // Curated reaction set — small + themed, no full emoji picker.
 const REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉', '🤔']
@@ -55,19 +76,56 @@ export default function CommentThread({ anchor, initialCount }: Props) {
   const [replyTo,     setReplyTo]     = useState<ReplyTarget | null>(null)
   const [replyBody,   setReplyBody]   = useState('')
   const [replyError,  setReplyError]  = useState<string | null>(null)
+  const [postToken,   setPostToken]   = useState<string | null>(null) // Turnstile tokens (AP-8)
+  const [postTsKey,   setPostTsKey]   = useState(0)
+  const [replyToken,  setReplyToken]  = useState<string | null>(null)
+  const [replyTsKey,  setReplyTsKey]  = useState(0)
   const [convoFor,    setConvoFor]    = useState<number | null>(null) // open conversation panel for this comment
   const [isAdmin,     setIsAdmin]     = useState(false)
   const [highlightId, setHighlightId] = useState<number | null>(null) // permalink target
+  const [sort,        setSort]        = useState<CommentSort>('newest')
+  const [totalRoots,  setTotalRoots]  = useState(0)
+  const [rootsFetched, setRootsFetched] = useState(0) // top-level rows pulled from the server (paging offset)
+  const [loadingMore, setLoadingMore]   = useState(false)
+
+  const hasMore = rootsFetched < totalRoots
+  const rootCount = (rows: CommentRow[]) => rows.filter(c => c.parent_comment_id == null).length
 
   async function toggle() {
     if (!open && !loaded) {
-      const [rows, admin] = await Promise.all([listCommentsFor(anchor), isCurrentUserAdmin()])
-      setComments(rows)
-      setCount(rows.length)
+      const [page, admin] = await Promise.all([
+        listCommentsPage(anchor, sort, 0, ROOT_PAGE),
+        isCurrentUserAdmin(),
+      ])
+      setComments(page.comments)
+      setTotalRoots(page.totalRoots)
+      setRootsFetched(rootCount(page.comments))
       setIsAdmin(admin)
       setLoaded(true)
     }
     setOpen(o => !o)
+  }
+
+  async function loadMore() {
+    if (loadingMore) return
+    setLoadingMore(true)
+    const page = await listCommentsPage(anchor, sort, rootsFetched, ROOT_PAGE)
+    setComments(prev => {
+      const have = new Set(prev.map(c => c.id))
+      return [...prev, ...page.comments.filter(c => !have.has(c.id))]
+    })
+    setTotalRoots(page.totalRoots)
+    setRootsFetched(n => n + rootCount(page.comments))
+    setLoadingMore(false)
+  }
+
+  async function changeSort(next: CommentSort) {
+    if (next === sort) return
+    setSort(next)
+    const page = await listCommentsPage(anchor, next, 0, ROOT_PAGE)
+    setComments(page.comments)
+    setTotalRoots(page.totalRoots)
+    setRootsFetched(rootCount(page.comments))
   }
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -76,7 +134,10 @@ export default function CommentThread({ anchor, initialCount }: Props) {
     const text = body.trim()
     if (!text) return
     startTransition(async () => {
-      const res = await addCommentTo(anchor, text)
+      const res = await addCommentTo(anchor, text, { turnstileToken: postToken ?? undefined })
+      // Turnstile tokens are single-use — refresh after every attempt.
+      setPostToken(null)
+      setPostTsKey(k => k + 1)
       if (!res.ok) {
         setError(res.error)
         return
@@ -96,9 +157,12 @@ export default function CommentThread({ anchor, initialCount }: Props) {
     const target = replyTo
     startTransition(async () => {
       const res = await addCommentTo(anchor, text, {
-        parentId:  target.parentId,
-        replyToId: target.replyToId,
+        parentId:       target.parentId,
+        replyToId:      target.replyToId,
+        turnstileToken: replyToken ?? undefined,
       })
+      setReplyToken(null)
+      setReplyTsKey(k => k + 1)
       if (!res.ok) {
         setReplyError(res.error)
         return
@@ -170,7 +234,8 @@ export default function CommentThread({ anchor, initialCount }: Props) {
       const hit = rows.find(r => r.id === target)
       if (!hit) return
       setComments(rows)
-      setCount(rows.length)
+      setTotalRoots(rootCount(rows))     // full load → nothing more to page
+      setRootsFetched(rootCount(rows))
       setIsAdmin(admin)
       setLoaded(true)
       setOpen(true)
@@ -191,8 +256,8 @@ export default function CommentThread({ anchor, initialCount }: Props) {
     return () => { clearTimeout(scroll); clearTimeout(clear) }
   }, [highlightId])
 
-  // Assemble the 2-level tree from the flat list.
-  const roots = comments.filter(c => c.parent_comment_id == null)
+  // Assemble the 2-level tree from the flat list; roots ordered by sort.
+  const roots = sortRoots(comments.filter(c => c.parent_comment_id == null), sort)
   const repliesByRoot = new Map<number, CommentRow[]>()
   for (const c of comments) {
     if (c.parent_comment_id != null) {
@@ -225,8 +290,25 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                 </p>
               )}
 
+              {totalRoots > 0 && (
+                <div className="flex gap-3 font-mono text-[10px] tracking-widest uppercase">
+                  {([['newest', '最新'], ['oldest', '最早'], ['top', '最热']] as const).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => changeSort(k)}
+                      className={`transition-colors ${sort === k ? 'text-ark-accent' : 'text-ark-border hover:text-ark-text'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {roots.map(root => {
-                const replies = repliesByRoot.get(root.id) ?? []
+                const replies = (repliesByRoot.get(root.id) ?? [])
+                  .slice()
+                  .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
                 const isExpanded = expanded.has(root.id)
                 return (
                   <div key={root.id} className="space-y-2">
@@ -250,6 +332,9 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                         onCancel={() => { setReplyTo(null); setReplyError(null) }}
                         error={replyError}
                         pending={pending}
+                        turnstile={<TurnstileWidget onToken={setReplyToken} remountKey={replyTsKey} />}
+                        submitBlocked={turnstileConfigured && !replyToken}
+                        imageButton={<ImageUploadButton imageCount={countImages(replyBody)} onImage={md => setReplyBody(b => appendMedia(b, md))} />}
                       />
                     )}
 
@@ -299,12 +384,28 @@ export default function CommentThread({ anchor, initialCount }: Props) {
                 )
               })}
 
+              {hasMore && (
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="font-mono text-[10px] tracking-widest uppercase
+                             text-ark-accent hover:text-ark-accent-bright
+                             disabled:opacity-40 transition-colors"
+                >
+                  {loadingMore ? '// 加载中…' : `// 加载更多 · ${totalRoots - rootsFetched}`}
+                </button>
+              )}
+
               <PostForm
                 body={body}
                 setBody={setBody}
                 onSubmit={submit}
                 error={error}
                 pending={pending}
+                turnstile={<TurnstileWidget onToken={setPostToken} remountKey={postTsKey} />}
+                submitBlocked={turnstileConfigured && !postToken}
+                imageButton={<ImageUploadButton imageCount={countImages(body)} onImage={md => setBody(b => appendMedia(b, md))} />}
               />
             </>
           ) : (
@@ -499,7 +600,7 @@ function CommentItem({
       ) : (
         <div className="text-ark-text leading-relaxed">
           {mention && <span className="text-ark-accent font-medium">@{mention} </span>}
-          <CommentMarkdown body={c.body} leadInline />
+          <CommentMarkdown body={c.body} leadInline references={c.references} />
         </div>
       )}
 
@@ -725,7 +826,7 @@ function ConversationPanel({
                 ) : (
                   <div className="text-ark-text leading-relaxed">
                     {mention && <span className="text-ark-accent font-medium">@{mention} </span>}
-                    <CommentMarkdown body={c.body} leadInline />
+                    <CommentMarkdown body={c.body} leadInline references={c.references} />
                   </div>
                 )}
               </div>
@@ -740,7 +841,7 @@ function ConversationPanel({
 
 
 function ReplyForm({
-  toName, body, setBody, onSubmit, onCancel, error, pending,
+  toName, body, setBody, onSubmit, onCancel, error, pending, turnstile, submitBlocked, imageButton,
 }: {
   toName: string | null
   body: string
@@ -749,6 +850,9 @@ function ReplyForm({
   onCancel: () => void
   error: string | null
   pending: boolean
+  turnstile?: React.ReactNode
+  submitBlocked?: boolean
+  imageButton?: React.ReactNode
 }) {
   if (error === 'not signed in') {
     return (
@@ -776,7 +880,9 @@ function ReplyForm({
                    outline-none px-3 py-2 text-sm text-ark-text
                    font-sans leading-relaxed resize-y transition-colors"
       />
+      {body.trim() && turnstile}
       <div className="flex items-center gap-3">
+        {imageButton}
         {error && error !== 'not signed in' && (
           <span className="font-mono text-[10px] text-ark-danger tracking-widest">
             {'// ' + error.toUpperCase()}
@@ -792,7 +898,7 @@ function ReplyForm({
         </button>
         <button
           type="submit"
-          disabled={pending || !body.trim()}
+          disabled={pending || !body.trim() || submitBlocked}
           className="font-mono text-[10px] tracking-widest uppercase
                      px-3 py-1 border border-ark-accent text-ark-accent
                      hover:bg-ark-accent hover:text-ark-bg
@@ -808,13 +914,16 @@ function ReplyForm({
 
 
 function PostForm({
-  body, setBody, onSubmit, error, pending,
+  body, setBody, onSubmit, error, pending, turnstile, submitBlocked, imageButton,
 }: {
   body: string
   setBody: (s: string) => void
   onSubmit: (e: React.FormEvent<HTMLFormElement>) => void
   error: string | null
   pending: boolean
+  turnstile?: React.ReactNode
+  submitBlocked?: boolean
+  imageButton?: React.ReactNode
 }) {
   // If the server action returned "not signed in", surface a login prompt
   // instead of the form.
@@ -841,7 +950,12 @@ function PostForm({
                    outline-none px-3 py-2 text-sm text-ark-text
                    font-sans leading-relaxed resize-y transition-colors"
       />
-      <div className="flex items-center justify-between">
+      <p className="font-mono text-[9px] text-ark-border tracking-wider">
+        {'//'} markdown · 引用 @story/ID @chapter/ID @user/ID @gadget/ID @event/ID
+      </p>
+      {body.trim() && turnstile}
+      <div className="flex items-center gap-3">
+        {imageButton}
         {error && error !== 'not signed in' && (
           <span className="font-mono text-[10px] text-ark-danger tracking-widest">
             {'// ' + error.toUpperCase()}
@@ -849,7 +963,7 @@ function PostForm({
         )}
         <button
           type="submit"
-          disabled={pending || !body.trim()}
+          disabled={pending || !body.trim() || submitBlocked}
           className="ml-auto font-mono text-[10px] tracking-widest uppercase
                      px-3 py-1 border border-ark-accent text-ark-accent
                      hover:bg-ark-accent hover:text-ark-bg

@@ -2,11 +2,17 @@
 
 import { useState } from 'react'
 import { signIn, signUp } from '@/app/actions/auth'
+import TurnstileWidget, { turnstileConfigured } from '@/components/TurnstileWidget'
 
 export default function AuthPage() {
   const [tab, setTab] = useState<'signin' | 'signup'>('signin')
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
+  const [tsKey, setTsKey] = useState(0)
+
+  // Turnstile gates signup only; bump the key to get a fresh challenge.
+  const turnstileBlocks = tab === 'signup' && turnstileConfigured && !token
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -15,7 +21,11 @@ export default function AuthPage() {
     const formData = new FormData(e.currentTarget)
     const result = tab === 'signin' ? await signIn(formData) : await signUp(formData)
     setLoading(false)
-    if (result?.error) setMessage({ text: result.error, error: true })
+    if (result?.error) {
+      setMessage({ text: result.error, error: true })
+      setToken(null)
+      setTsKey(k => k + 1) // token is single-use; refresh it after a failed attempt
+    }
     if (result && 'message' in result) setMessage({ text: result.message, error: false })
   }
 
@@ -95,6 +105,13 @@ export default function AuthPage() {
             />
           </div>
 
+          {tab === 'signup' && (
+            <>
+              <TurnstileWidget onToken={setToken} remountKey={tsKey} />
+              <input type="hidden" name="cf-turnstile-response" value={token ?? ''} />
+            </>
+          )}
+
           {message && (
             <p className={`text-xs px-3 py-2 border ${
               message.error
@@ -107,7 +124,7 @@ export default function AuthPage() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || turnstileBlocks}
             className="mt-2 py-2.5 text-xs tracking-widest uppercase font-medium
                        bg-ark-accent text-ark-bg hover:bg-ark-accent-bright
                        disabled:opacity-50 disabled:cursor-not-allowed

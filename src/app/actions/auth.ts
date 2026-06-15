@@ -2,6 +2,7 @@
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { verifyTurnstile } from '@/lib/turnstile'
 
 export async function signIn(formData: FormData) {
   const supabase = await createClient()
@@ -14,6 +15,13 @@ export async function signIn(formData: FormData) {
 }
 
 export async function signUp(formData: FormData) {
+  // Anti-bot on account creation (no-op until Turnstile is configured). The
+  // widget injects this hidden field into the form.
+  const token = formData.get('cf-turnstile-response') as string | null
+  if (!(await verifyTurnstile(token))) {
+    return { error: '人机验证失败，请重试' }
+  }
+
   const supabase = await createClient()
   const { error } = await supabase.auth.signUp({
     email: formData.get('email') as string,
