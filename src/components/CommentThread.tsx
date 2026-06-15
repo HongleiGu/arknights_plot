@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
 import { createPortal } from 'react-dom'
+import CommentMarkdown from '@/components/CommentMarkdown'
 import {
   addCommentTo,
   deleteComment,
@@ -496,10 +497,10 @@ function CommentItem({
           </div>
         </form>
       ) : (
-        <p className="text-ark-text leading-relaxed whitespace-pre-wrap">
+        <div className="text-ark-text leading-relaxed">
           {mention && <span className="text-ark-accent font-medium">@{mention} </span>}
-          {c.body}
-        </p>
+          <CommentMarkdown body={c.body} leadInline />
+        </div>
       )}
 
       {!editing && onReact && (
@@ -722,10 +723,10 @@ function ConversationPanel({
                     {tombstone(c)}
                   </p>
                 ) : (
-                  <p className="text-ark-text leading-relaxed whitespace-pre-wrap">
+                  <div className="text-ark-text leading-relaxed">
                     {mention && <span className="text-ark-accent font-medium">@{mention} </span>}
-                    {c.body}
-                  </p>
+                    <CommentMarkdown body={c.body} leadInline />
+                  </div>
                 )}
               </div>
             )
