@@ -951,7 +951,7 @@ function PostForm({
                    font-sans leading-relaxed resize-y transition-colors"
       />
       <p className="font-mono text-[9px] text-ark-border tracking-wider">
-        {'//'} markdown · 引用 @story/ID @chapter/ID @user/ID @gadget/ID @event/ID
+        {'//'} markdown · 引用 @story/ @chapter/ @node/ @gadget/ @event/ @text/ @option/ @furniture/ @user/ + ID
       </p>
       {body.trim() && turnstile}
       <div className="flex items-center gap-3">

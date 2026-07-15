@@ -12,10 +12,11 @@ import type { ReferenceData } from '@/lib/references'
 const R2 = process.env.NEXT_PUBLIC_R2_PUBLIC_URL ?? ''
 
 // `@type/id` cross-reference tokens (AP-2). Kept in sync with lib/references.
-const REF_RE = /@(user|story|chapter|gadget|event)\/(\d+)/g
+const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|user)\/(\d+)/g
 
 const TYPE_ICON: Record<string, string> = {
-  user: '@', story: '◈', chapter: '§', gadget: '◆', event: '❖',
+  user: '@', story: '◈', chapter: '§', node: '¶', gadget: '◆',
+  event: '❖', option: '▸', text: '✎', furniture: '⌂',
 }
 
 // Escape characters that would break a markdown link label.

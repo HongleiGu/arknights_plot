@@ -62,6 +62,13 @@ export default async function Header() {
 
         {/* ---- Auth strip ---- */}
         <div className="flex items-center gap-3 text-ark-muted">
+          <Link
+            href="/boards"
+            className="hidden sm:inline tracking-widest uppercase text-ark-muted
+                       hover:text-ark-accent transition-colors duration-200"
+          >
+            {'// 线索板'}
+          </Link>
           {user ? (
             <>
               {bellUserId != null && (

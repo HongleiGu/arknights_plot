@@ -1,8 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
   images: {
+    // Serve images directly from R2 instead of Vercel's image optimizer.
+    // The optimizer has a monthly quota on the Hobby plan; once exhausted,
+    // /_next/image returns 402 (OPTIMIZED_IMAGE_REQUEST_PAYMENT_REQUIRED).
+    // Our assets already live on R2/Cloudflare, so optimization buys little.
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',
