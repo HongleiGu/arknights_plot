@@ -327,13 +327,22 @@ export async function runTool(name: string, args: Record<string, unknown>): Prom
       case 'read_board': {
         const board = await getBoard(Number(args.board_id))
         if (!board) return { forModel: '未找到该线索板', summary: `board/${args.board_id} 未找到` }
-        const labelOf = new Map(board.members.map(m => [m.id, m.ref?.label ?? m.title ?? `#${m.id}`]))
-        const nodes = board.members.map(m =>
-          m.kind === 'entity'
-            ? `- ${m.ref?.type}/${m.ref?.id} ${m.ref?.label ?? ''}: ${trunc(m.ref?.preview, 120)}`
-            : `- [用户卡片] ${m.title ?? ''} ${trunc(m.note, 160)}`).join('\n')
-        const edges = board.edges.map(e =>
-          `- ${labelOf.get(e.from) ?? e.from} → ${labelOf.get(e.to) ?? e.to}${e.label ? ' : ' + e.label : ''}`).join('\n')
+        // Post-033 a node is text + citations, so render both: the reader's own
+        // wording, then what it cites. The citation list is what keeps the model
+        // grounded — it can follow those ids back to the source.
+        const labelOf = new Map(board.members.map(
+          m => [m.id, m.title ?? trunc(m.body, 40) ?? `#${m.id}`]))
+        const nodes = board.members.map(m => {
+          const head = m.title ? `${m.title}: ` : ''
+          const cites = m.refs.length
+            ? `\n    引用：${m.refs.map(r => `${r.type}/${r.id}（${r.label}）`).join('、')}`
+            : ''
+          return `- ${head}${trunc(m.body, 300) ?? ''}${m.image_url ? ' [附图]' : ''}${cites}`
+        }).join('\n')
+        const edges = board.edges.map(e => {
+          const kind = e.kind ? `[${e.kind}] ` : ''
+          return `- ${kind}${labelOf.get(e.from) ?? e.from} → ${labelOf.get(e.to) ?? e.to}${e.label ? ' : ' + e.label : ''}`
+        }).join('\n')
         return {
           forModel: `线索板「${board.title}」board/${board.id}\n${board.description ?? ''}\n\n节点：\n${nodes}\n\n连线：\n${edges}`,
           summary: `board/${board.id}「${board.title}」`,

@@ -1,7 +1,13 @@
 'use client'
 
+// Find a piece of canon by text and hand back its `@type/id` token (033).
+//
+// Was SearchAdd, which added the result as its own board node. Post-033 a
+// citation isn't a node — it's a token inside a node's text — so this only
+// resolves "the thing I mean" to a token and lets the caller place it.
+
 import { useEffect, useRef, useState } from 'react'
-import { addEntityMember, searchEntities, type BoardMember } from '@/app/actions/boards'
+import { searchEntities } from '@/app/actions/boards'
 import type { ReferenceData } from '@/lib/references'
 
 const TYPES: [string, string][] = [
@@ -10,18 +16,8 @@ const TYPES: [string, string][] = [
   ['entity', '实体'],
 ]
 
-/**
- * Search a content type by text and add the chosen result as a board node —
- * so you never have to look an id up externally.
- */
-export default function SearchAdd({
-  boardId,
-  onAdded,
-}: {
-  boardId: number
-  onAdded: (member: BoardMember) => void
-}) {
-  const [type, setType] = useState('story')
+export default function CiteSearch({ onPick }: { onPick: (token: string, ref: ReferenceData) => void }) {
+  const [type, setType] = useState('node')
   const [q, setQ] = useState('')
   const [results, setResults] = useState<ReferenceData[]>([])
   const [open, setOpen] = useState(false)
@@ -46,24 +42,21 @@ export default function SearchAdd({
   // Close on outside click.
   useEffect(() => {
     function onDoc(e: MouseEvent) {
-      if (box.current && !box.current.contains(e.target as Node)) setOpen(false)
+      if (box.current && !box.current.contains(e.target as globalThis.Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  async function pick(ref: ReferenceData) {
-    const res = await addEntityMember(boardId, `${ref.type}/${ref.id}`)
-    if (res.ok) {
-      onAdded(res.member)
-      setQ('')
-      setResults([])
-      setOpen(false)
-    }
+  function pick(ref: ReferenceData) {
+    onPick(`@${ref.type}/${ref.id}`, ref)
+    setQ('')
+    setResults([])
+    setOpen(false)
   }
 
   return (
-    <div ref={box} className="relative flex items-center gap-1">
+    <div ref={box} className="relative flex items-center gap-1 nodrag">
       <select
         value={type}
         onChange={e => setType(e.target.value)}
@@ -76,13 +69,13 @@ export default function SearchAdd({
         value={q}
         onChange={e => setQ(e.target.value)}
         onFocus={() => results.length && setOpen(true)}
-        placeholder="搜索内容…"
-        className="w-44 bg-ark-surface border border-ark-border focus:border-ark-accent outline-none
+        placeholder="搜索并引用…"
+        className="flex-1 min-w-0 bg-ark-surface border border-ark-border focus:border-ark-accent outline-none
                    px-2 py-1 text-xs text-ark-text placeholder:text-ark-muted"
       />
 
       {open && (
-        <ul className="absolute right-0 top-full z-50 mt-1 w-80 max-h-72 overflow-y-auto
+        <ul className="absolute left-0 top-full z-50 mt-1 w-80 max-h-64 overflow-y-auto
                        bg-ark-bg border border-ark-border shadow-2xl">
           {busy && (
             <li className="px-3 py-2 font-mono text-[10px] text-ark-muted tracking-widest">{'// 搜索中…'}</li>
@@ -99,6 +92,7 @@ export default function SearchAdd({
                            hover:bg-ark-surface transition-colors"
               >
                 <span className="text-sm text-ark-text">{r.label}</span>
+                <span className="ml-1.5 font-mono text-[10px] text-ark-border">{r.type}/{r.id}</span>
                 {r.preview && (
                   <span className="block text-xs text-ark-muted line-clamp-1 mt-0.5">{r.preview}</span>
                 )}

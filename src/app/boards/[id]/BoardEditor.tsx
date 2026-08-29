@@ -18,10 +18,11 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import SearchAdd from './SearchAdd'
 import SharePanel from './SharePanel'
+import NodeEditor from './NodeEditor'
+import CommentMarkdown from '@/components/CommentMarkdown'
 import {
-  addCardMember,
+  addMember,
   addEdge as addEdgeAction,
   deleteEdge as deleteEdgeAction,
   deleteMember,
@@ -33,18 +34,23 @@ import {
   type BoardMember,
 } from '@/app/actions/boards'
 
-// Preset relationship vocabulary for typed edges (AP-14). `kind` is stored as
-// free text; this table only drives styling + the editor picker. NULL / unknown
-// kind → the neutral 'relates' look.
-const EDGE_KINDS: { key: string; label: string; color: string; dashed?: boolean }[] = [
-  { key: 'relates',     label: '关联',    color: '#585858' },
-  { key: 'causes',      label: '导致',    color: '#18d1ff' },
-  { key: 'contradicts', label: '矛盾',    color: '#ff5555', dashed: true },
-  { key: 'same',        label: '同一人',  color: '#b98cff' },
-  { key: 'allied',      label: '同盟',    color: '#8fc31f' },
-  { key: 'opposed',     label: '敌对',    color: '#ff9955' },
+// Argument vocabulary (033). With a single node type, edges carry ALL of the
+// reasoning structure, so these are about *your argument*, not about Terra.
+// The world-model kinds that used to live here (same-person / allied / opposed)
+// are gone: they duplicated AP-22's entity_relations, which carry source
+// citations — a hand-drawn line doesn't.
+//
+// `kind` is stored as free text; this table only drives styling + the picker.
+export const EDGE_KINDS: { key: string; label: string; color: string; dashed?: boolean }[] = [
+  { key: 'supports',    label: '支持',  color: '#8fc31f' },
+  { key: 'contradicts', label: '反驳',  color: '#ff5555', dashed: true },
+  { key: 'causes',      label: '导致',  color: '#18d1ff' },
+  { key: 'precedes',    label: '先于',  color: '#b98cff' },
+  { key: 'answers',     label: '解答',  color: '#ff9955' },
+  { key: 'relates',     label: '关联',  color: '#585858' },
 ]
-const KIND_SPEC = (kind: string | null) => EDGE_KINDS.find(k => k.key === kind) ?? EDGE_KINDS[0]
+const KIND_SPEC = (kind: string | null) =>
+  EDGE_KINDS.find(k => k.key === kind) ?? EDGE_KINDS[EDGE_KINDS.length - 1]
 
 // A stored BoardEdge → a styled React Flow edge. Kind drives stroke colour /
 // dash / arrow; data carries the raw fields so the editor can round-trip them.
@@ -64,99 +70,105 @@ function edgeToRF(e: BoardEdge): Edge {
   }
 }
 
-const TYPE_ICON: Record<string, string> = {
-  story: '◈', chapter: '§', node: '¶', gadget: '◆',
-  event: '❖', option: '▸', text: '✎', furniture: '⌂',
-}
-
 interface NodeData extends Record<string, unknown> {
   member: BoardMember
   canEdit: boolean
-  onEditCard: (id: number) => void
+  onEdit: (id: number) => void
 }
 
-function memberToNode(m: BoardMember, canEdit: boolean, onEditCard: (id: number) => void): Node<NodeData> {
+function memberToNode(m: BoardMember, canEdit: boolean, onEdit: (id: number) => void): Node<NodeData> {
   return {
     id: String(m.id),
-    type: m.kind,
+    type: 'note',
     position: { x: m.x, y: m.y },
     draggable: canEdit,
-    data: { member: m, canEdit, onEditCard },
+    data: { member: m, canEdit, onEdit },
   }
 }
 
-// ---- custom nodes ----
+// ---- the one node type -----------------------------------------------------
 
-function EntityNode({ data }: NodeProps<Node<NodeData>>) {
-  const { ref } = data.member
+/**
+ * Text + optional image. Citations inside the body render as chips with hover
+ * previews, courtesy of CommentMarkdown (AP-2) — so evidence is readable in
+ * place without pinning a separate card for it.
+ *
+ * A node citing nothing gets a muted left border: by construction that's an
+ * unsupported claim, which is the signal a reasoning board should surface.
+ */
+function NoteNode({ data }: NodeProps<Node<NodeData>>) {
+  const { member, canEdit, onEdit } = data
+  const grounded = member.refs.length > 0
   return (
-    <div className="w-56 bg-ark-surface border border-ark-accent/40 rounded shadow-lg text-xs">
+    <div
+      onDoubleClick={() => canEdit && onEdit(member.id)}
+      title={canEdit ? '双击编辑' : undefined}
+      className={`w-60 bg-ark-surface border rounded shadow-lg text-xs overflow-hidden
+                  ${grounded ? 'border-ark-accent/40' : 'border-ark-border'}`}
+      style={{ borderLeftWidth: 3, borderLeftColor: grounded ? '#18d1ff' : '#2a2d2e' }}
+    >
       <Handle type="target" position={Position.Left} className="!bg-ark-accent" />
       <Handle type="source" position={Position.Right} className="!bg-ark-accent" />
-      <div className="px-2 py-1 border-b border-ark-border font-mono text-[10px] text-ark-accent tracking-widest uppercase">
-        {TYPE_ICON[ref?.type ?? ''] ?? '◇'} {ref?.type ?? 'entity'}
-      </div>
+
+      {member.image_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={member.image_url}
+          alt={member.title ?? ''}
+          className="w-full max-h-40 object-cover block"
+          loading="lazy"
+        />
+      )}
+
       <div className="p-2">
-        <p className="text-ark-text font-medium">{ref?.label ?? `#${data.member.id}`}</p>
-        {ref?.preview && <p className="text-ark-muted mt-1 line-clamp-3 leading-relaxed">{ref.preview}</p>}
-        {ref?.href && (
-          <a href={ref.href} target="_blank" rel="noreferrer"
-             className="nodrag block mt-1.5 font-mono text-[10px] text-ark-accent hover:text-ark-accent-bright tracking-widest">
-            打开 →
-          </a>
+        {member.title && <p className="text-ark-accent font-medium mb-1">{member.title}</p>}
+        {member.body && (
+          <div className="nodrag text-ark-text leading-relaxed max-h-44 overflow-y-auto">
+            <CommentMarkdown body={member.body} references={member.refs} />
+          </div>
+        )}
+        {!member.body && !member.title && !member.image_url && (
+          <p className="text-ark-border font-mono text-[10px] tracking-widest">{'// 空节点 · 双击编辑'}</p>
+        )}
+        {member.refs.length > 0 && (
+          <p className="font-mono text-[9px] text-ark-border tracking-widest mt-1.5 pt-1 border-t border-ark-border/60">
+            {'//'} {member.refs.length} 处引用
+          </p>
         )}
       </div>
     </div>
   )
 }
 
-function CardNode({ data }: NodeProps<Node<NodeData>>) {
-  const { member, canEdit, onEditCard } = data
-  return (
-    <div
-      onDoubleClick={() => canEdit && onEditCard(member.id)}
-      className="w-48 min-h-12 bg-ark-accent/10 border border-ark-accent/40 rounded shadow-lg p-2 text-xs"
-      title={canEdit ? '双击编辑' : undefined}
-    >
-      <Handle type="target" position={Position.Left} className="!bg-ark-accent" />
-      <Handle type="source" position={Position.Right} className="!bg-ark-accent" />
-      {member.title && <p className="text-ark-accent font-medium mb-1">{member.title}</p>}
-      <p className="text-ark-text whitespace-pre-wrap leading-relaxed">{member.note}</p>
-    </div>
-  )
-}
+const nodeTypes = { note: NoteNode }
 
-const nodeTypes = { entity: EntityNode, card: CardNode }
-
-// ---- editor ----
+// ---- editor ----------------------------------------------------------------
 
 export default function BoardEditor({ board }: { board: Board }) {
   const isOwner = board.is_owner
   const canEdit = board.can_edit
 
-  const onEditCard = useCallback((id: number) => {
-    setNodes(ns => {
-      const n = ns.find(x => x.id === String(id))
-      const current = (n?.data.member.note as string) ?? ''
-      const next = window.prompt('卡片内容', current)
-      if (next == null) return ns
-      void updateMember(id, { note: next })
-      return ns.map(x =>
-        x.id === String(id) ? { ...x, data: { ...x.data, member: { ...x.data.member, note: next } } } : x,
-      )
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const [editing, setEditing] = useState<number | null>(null)
+  const onEdit = useCallback((id: number) => setEditing(id), [])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<NodeData>>(
-    board.members.map(m => memberToNode(m, canEdit, onEditCard)),
+    board.members.map(m => memberToNode(m, canEdit, onEdit)),
   )
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(board.edges.map(edgeToRF))
   const [layout, setLayout] = useState(board.layout)
   const [msg, setMsg] = useState<string | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
-  // The edge currently open in the typed-edge editor panel.
   const [selEdge, setSelEdge] = useState<{ id: number; kind: string | null; label: string | null; directed: boolean } | null>(null)
+
+  const editingMember = nodes.find(n => n.id === String(editing))?.data.member ?? null
+
+  /** Write a member patch back into canvas state (and the DB). */
+  const patchMember = useCallback((id: number, patch: Partial<BoardMember>) => {
+    setNodes(ns => ns.map(n =>
+      n.id === String(id)
+        ? { ...n, data: { ...n.data, member: { ...n.data.member, ...patch } } }
+        : n))
+  }, [setNodes])
 
   // Persist a node's position after a drag.
   const onNodeDragStop = useCallback((_e: unknown, node: Node) => {
@@ -164,15 +176,16 @@ export default function BoardEditor({ board }: { board: Board }) {
     void updateMember(Number(node.id), { x: node.position.x, y: node.position.y })
   }, [canEdit, layout])
 
-  // Connect two nodes → an edge.
+  // Connect two nodes → an edge. Defaults to 'supports', the commonest link on
+  // a reasoning board; the picker changes it in one click.
   const onConnect = useCallback((c: Connection) => {
     if (!canEdit || !c.source || !c.target) return
-    void addEdgeAction(board.id, Number(c.source), Number(c.target)).then(res => {
+    void addEdgeAction(board.id, Number(c.source), Number(c.target), 'supports').then(res => {
       if (res.ok) setEdges(eds => [...eds, edgeToRF(res.edge)])
+      else setMsg(res.error)
     })
   }, [canEdit, board.id, setEdges])
 
-  // Persist a change to the selected edge and restyle it in place.
   const patchEdge = useCallback((id: number, patch: Partial<Pick<BoardEdge, 'kind' | 'label' | 'directed'>>) => {
     setEdges(eds => eds.map(x => {
       if (x.id !== String(id)) return x
@@ -198,7 +211,10 @@ export default function BoardEditor({ board }: { board: Board }) {
 
   const onNodesDelete = useCallback((deleted: Node[]) => {
     if (!canEdit) return
-    for (const n of deleted) void deleteMember(Number(n.id))
+    for (const n of deleted) {
+      void deleteMember(Number(n.id))
+      setEditing(cur => (cur === Number(n.id) ? null : cur))
+    }
   }, [canEdit])
 
   const onEdgesDelete = useCallback((deleted: Edge[]) => {
@@ -206,12 +222,12 @@ export default function BoardEditor({ board }: { board: Board }) {
     for (const e of deleted) void deleteEdgeAction(Number(e.id))
   }, [canEdit])
 
-  async function addCard() {
-    const text = window.prompt('卡片内容')
-    if (text == null || !text.trim()) return
-    const res = await addCardMember(board.id, text)
+  /** New empty node, opened straight into the editor. */
+  async function addNode() {
+    const res = await addMember(board.id, { body: '新节点' })
     if (!res.ok) { setMsg(res.error); return }
-    setNodes(ns => [...ns, memberToNode(res.member, canEdit, onEditCard)])
+    setNodes(ns => [...ns, memberToNode(res.member, canEdit, onEdit)])
+    setEditing(res.member.id)
   }
 
   function toggleLayout() {
@@ -221,15 +237,13 @@ export default function BoardEditor({ board }: { board: Board }) {
     // local-only view toggle.
     if (isOwner) void updateBoard(board.id, { layout: next })
     if (next === 'timeline') {
-      // Lay nodes out left-to-right by seq, then by current x.
       setNodes(ns => {
         const ordered = [...ns].sort((a, b) =>
           (a.data.member.seq - b.data.member.seq) || (a.position.x - b.position.x))
-        const xOf = new Map(ordered.map((n, i) => [n.id, i * 260 + 40]))
+        const xOf = new Map(ordered.map((n, i) => [n.id, i * 280 + 40]))
         return ns.map(n => ({ ...n, position: { x: xOf.get(n.id) ?? n.position.x, y: 120 } }))
       })
     } else {
-      // Restore stored board positions.
       setNodes(ns => ns.map(n => ({ ...n, position: { x: n.data.member.x, y: n.data.member.y } })))
     }
   }
@@ -253,17 +267,11 @@ export default function BoardEditor({ board }: { board: Board }) {
 
         <div className="ml-auto flex items-center gap-2 flex-wrap">
           {canEdit && (
-            <>
-              <SearchAdd
-                boardId={board.id}
-                onAdded={m => setNodes(ns => [...ns, memberToNode(m, canEdit, onEditCard)])}
-              />
-              <button onClick={addCard} className="font-mono text-[10px] tracking-widest uppercase px-2 py-1 border border-ark-border text-ark-muted hover:text-ark-accent hover:border-ark-accent-dim transition-colors">
-                + 卡片
-              </button>
-            </>
+            <button onClick={addNode} className="font-mono text-[10px] tracking-widest uppercase px-2 py-1 border border-ark-accent text-ark-accent hover:bg-ark-accent hover:text-ark-bg transition-colors">
+              + 节点
+            </button>
           )}
-          <button onClick={toggleLayout} className="font-mono text-[10px] tracking-widest uppercase px-2 py-1 border border-ark-accent text-ark-accent hover:bg-ark-accent hover:text-ark-bg transition-colors">
+          <button onClick={toggleLayout} className="font-mono text-[10px] tracking-widest uppercase px-2 py-1 border border-ark-border text-ark-muted hover:text-ark-accent hover:border-ark-accent-dim transition-colors">
             {layout === 'timeline' ? '板视图' : '时间线'}
           </button>
           {isOwner && (
@@ -298,6 +306,23 @@ export default function BoardEditor({ board }: { board: Board }) {
         >
           <Background color="#1d1f20" gap={24} />
           <Controls className="!bg-ark-surface !border-ark-border" />
+
+          {canEdit && editingMember && (
+            <Panel position="top-left">
+              <NodeEditor
+                key={editingMember.id}
+                member={editingMember}
+                onPatch={patch => patchMember(editingMember.id, patch)}
+                onDelete={() => {
+                  void deleteMember(editingMember.id)
+                  setNodes(ns => ns.filter(n => n.id !== String(editingMember.id)))
+                  setEditing(null)
+                }}
+                onClose={() => setEditing(null)}
+              />
+            </Panel>
+          )}
+
           {canEdit && selEdge && (
             <Panel position="bottom-right">
               <EdgeEditor
@@ -325,7 +350,7 @@ export default function BoardEditor({ board }: { board: Board }) {
   )
 }
 
-// ---- typed-edge editor (AP-14) ----
+// ---- typed-edge editor -----------------------------------------------------
 
 function EdgeEditor({
   sel, onKind, onLabel, onDirected, onDelete, onClose,
@@ -347,7 +372,6 @@ function EdgeEditor({
         <button onClick={onClose} className="text-ark-muted hover:text-ark-accent text-sm leading-none">×</button>
       </div>
       <div className="p-2.5 space-y-2.5">
-        {/* kind chips */}
         <div className="flex flex-wrap gap-1">
           {EDGE_KINDS.map(k => (
             <button
@@ -363,7 +387,6 @@ function EdgeEditor({
           ))}
         </div>
 
-        {/* label */}
         <input
           value={label}
           onChange={e => setLabel(e.target.value)}

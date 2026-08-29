@@ -1,8 +1,8 @@
-// Cloudflare R2 upload helper for comment media (AP-10). Mirrors the Python
-// upload scripts: bucket `arknights-assets`, S3 API at
+// Cloudflare R2 upload helper for user-supplied media (AP-10). Mirrors the
+// Python upload scripts: bucket `arknights-assets`, S3 API at
 // https://<account>.r2.cloudflarestorage.com, public URL via
-// NEXT_PUBLIC_R2_PUBLIC_URL. Objects land under comment-media/<sha1>.<ext>
-// (content hash → identical images dedupe).
+// NEXT_PUBLIC_R2_PUBLIC_URL. Objects land under <prefix>/<sha1>.<ext>
+// (content hash → identical images dedupe, across prefixes too).
 
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createHash } from 'node:crypto'
@@ -41,13 +41,19 @@ function r2(): S3Client {
   return client
 }
 
-/** Upload image bytes to R2, returning the public URL. Throws on bad type. */
-export async function uploadCommentImage(bytes: Uint8Array, contentType: string): Promise<string> {
+/**
+ * Upload image bytes to R2, returning the public URL. Throws on bad type.
+ * `prefix` separates comment attachments from board node images; the object
+ * name stays the content hash either way.
+ */
+export async function uploadImage(
+  bytes: Uint8Array, contentType: string, prefix = 'comment-media',
+): Promise<string> {
   const ext = EXT[contentType]
   if (!ext) throw new Error('unsupported image type')
 
   const sha1 = createHash('sha1').update(bytes).digest('hex')
-  const key = `comment-media/${sha1}.${ext}`
+  const key = `${prefix}/${sha1}.${ext}`
 
   await r2().send(new PutObjectCommand({
     Bucket: BUCKET,
@@ -59,3 +65,7 @@ export async function uploadCommentImage(bytes: Uint8Array, contentType: string)
 
   return `${PUBLIC}/${key}`
 }
+
+/** Back-compat alias for the AP-10 comment upload path. */
+export const uploadCommentImage = (bytes: Uint8Array, contentType: string) =>
+  uploadImage(bytes, contentType, 'comment-media')

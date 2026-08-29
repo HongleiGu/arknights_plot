@@ -2,16 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { resolveReferences, REF_TYPE_COL, type ReferenceData } from '@/lib/references'
+import { parseReferences, resolveReferences, type ReferenceData } from '@/lib/references'
 
 type Db = Awaited<ReturnType<typeof createClient>>
-
-// Shared with @type/id references: token → member FK column, and back.
-const TYPE_COL = REF_TYPE_COL
-const COL_TYPE: Record<string, string> = Object.fromEntries(
-  Object.entries(REF_TYPE_COL).map(([t, c]) => [c, t]),
-)
-const ENTITY_COLS = Object.keys(COL_TYPE)
 
 export type BoardRole = 'owner' | 'editor' | 'viewer'
 export type BoardVisibility = 'private' | 'unlisted' | 'public'
@@ -33,16 +26,24 @@ export interface BoardCollaborator {
   role: 'viewer' | 'editor'
 }
 
+/**
+ * A board node (033). One kind only: text + an optional image. Evidence is
+ * cited *inside* `body` as `@type/id` tokens, resolved into `refs` for chip
+ * rendering — so a single node can cite many things, and a node with an empty
+ * `refs` is, by construction, an ungrounded claim.
+ */
 export interface BoardMember {
   id: number
-  kind: 'entity' | 'card'
+  title: string | null
+  body: string
+  image_url: string | null
+  image_w: number | null
+  image_h: number | null
   x: number
   y: number
   seq: number
-  title: string | null
-  note: string | null
-  data: unknown | null      // free-form custom data (018)
-  ref: ReferenceData | null // resolved entity (label/href/preview), or null for cards
+  data: unknown | null       // free-form custom data (018)
+  refs: ReferenceData[]      // resolved @type/id citations found in title+body
 }
 
 export interface BoardEdge {
@@ -51,7 +52,7 @@ export interface BoardEdge {
   to: number
   label: string | null
   directed: boolean
-  kind: string | null
+  kind: string | null        // supports / contradicts / causes / precedes / answers
 }
 
 export interface Board {
@@ -72,15 +73,6 @@ async function myUserId(supabase: Db): Promise<number | null> {
   if (!user) return null
   const { data } = await supabase.from('users').select('id').eq('clerk_id', user.id).maybeSingle()
   return data?.id ?? null
-}
-
-/** Derive an entity ref {type,id} from a member row, or null for a card. */
-function memberEntity(row: Record<string, unknown>): { type: string; id: number } | null {
-  for (const col of ENTITY_COLS) {
-    const v = row[col]
-    if (v != null) return { type: COL_TYPE[col], id: v as number }
-  }
-  return null
 }
 
 /**
@@ -185,29 +177,41 @@ export async function getBoard(id: number): Promise<Board | null> {
 
   const { data: memberRows } = await supabase
     .from('correlation_members')
-    .select('id, x, y, seq, title, note, data, ' + ENTITY_COLS.join(', '))
+    .select('id, title, body, image_url, image_w, image_h, x, y, seq, data')
     .eq('correlation_id', id)
-  const rows = (memberRows ?? []) as unknown as Record<string, unknown>[]
+    .order('seq', { ascending: true })
+  const rows = memberRows ?? []
 
-  // Resolve entity members (story/chapter/gadget/event) to labels/links.
-  const refSpecs = rows.map(memberEntity).filter((x): x is { type: string; id: number } => !!x)
-  const resolved = await resolveReferences(supabase, refSpecs)
+  // Every citation across the whole board resolves in ONE batch, then each
+  // node picks its own out of the map — rather than a lookup per node.
+  const perMember = rows.map(r => parseReferences(`${r.title ?? ''}
+${r.body ?? ''}`))
+  const seen = new Set<string>()
+  const allRefs: { type: string; id: number }[] = []
+  for (const refs of perMember) {
+    for (const ref of refs) {
+      if (seen.has(ref.key)) continue
+      seen.add(ref.key)
+      allRefs.push({ type: ref.type, id: ref.id })
+    }
+  }
+  const resolved = await resolveReferences(supabase, allRefs)
   const refByKey = new Map(resolved.map(r => [r.key, r]))
 
-  const members: BoardMember[] = rows.map(r => {
-    const ent = memberEntity(r)
-    return {
-      id: r.id as number,
-      kind: ent ? 'entity' : 'card',
-      x: (r.x as number) ?? 0,
-      y: (r.y as number) ?? 0,
-      seq: (r.seq as number) ?? 0,
-      title: (r.title as string) ?? null,
-      note: (r.note as string) ?? null,
-      data: (r.data as unknown) ?? null,
-      ref: ent ? refByKey.get(`${ent.type}/${ent.id}`) ?? null : null,
-    }
-  })
+  const members: BoardMember[] = rows.map((r, i) => ({
+    id: r.id,
+    title: r.title ?? null,
+    body: r.body ?? '',
+    image_url: r.image_url ?? null,
+    image_w: r.image_w ?? null,
+    image_h: r.image_h ?? null,
+    x: r.x ?? 0,
+    y: r.y ?? 0,
+    seq: r.seq ?? 0,
+    data: r.data ?? null,
+    // Unresolvable ids (deleted row, typo'd token) drop out here.
+    refs: perMember[i].map(ref => refByKey.get(ref.key)).filter((x): x is ReferenceData => !!x),
+  }))
 
   const { data: edgeRows } = await supabase
     .from('correlation_edges')
@@ -339,69 +343,94 @@ async function nextPosition(supabase: Db, boardId: number): Promise<{ x: number;
   return { x: (n % 4) * 240 + 40, y: Math.floor(n / 4) * 150 + 40 }
 }
 
-export async function addEntityMember(
+/**
+ * Add a node. Everything is optional except that it can't be entirely empty —
+ * a node is text, an image, or both. Citations go in `body` as `@type/id`; the
+ * 033 trigger indexes them for backlinks, so nothing to do here.
+ */
+export async function addMember(
   boardId: number,
-  refInput: string,
+  fields: { title?: string; body?: string; imageUrl?: string; imageW?: number; imageH?: number } = {},
 ): Promise<{ ok: true; member: BoardMember } | { ok: false; error: string }> {
-  const m = refInput.trim().replace(/^@/, '').match(/^(\w+)\/(\d+)$/)
-  if (!m) return { ok: false, error: '格式：type/ID，如 story/17' }
-  const type = m[1]
-  const id = parseInt(m[2], 10)
-  const col = TYPE_COL[type]
-  if (!col) return { ok: false, error: `不支持的类型：${type}（支持 ${Object.keys(TYPE_COL).join('/')}）` }
+  const title = fields.title?.trim() || null
+  const body = fields.body?.trim() ?? ''
+  if (!title && !body && !fields.imageUrl) return { ok: false, error: '节点不能为空' }
 
   const supabase = await createClient()
+  const me = await myUserId(supabase)
   const pos = await nextPosition(supabase, boardId)
   const { data, error } = await supabase
     .from('correlation_members')
-    .insert({ correlation_id: boardId, [col]: id, x: pos.x, y: pos.y })
-    .select('id, x, y, seq, title, note')
-    .single()
-  if (error || !data) return { ok: false, error: error?.message ?? '添加失败（检查 ID 是否存在）' }
-
-  const [ref] = await resolveReferences(supabase, [{ type, id }])
-  return {
-    ok: true,
-    member: { id: data.id, kind: 'entity', x: data.x, y: data.y, seq: data.seq, title: data.title ?? null, note: data.note ?? null, data: null, ref: ref ?? null },
-  }
-}
-
-export async function addCardMember(
-  boardId: number,
-  note: string,
-  title?: string,
-): Promise<{ ok: true; member: BoardMember } | { ok: false; error: string }> {
-  note = note.trim()
-  if (!note && !title?.trim()) return { ok: false, error: '卡片不能为空' }
-  const supabase = await createClient()
-  const pos = await nextPosition(supabase, boardId)
-  const { data, error } = await supabase
-    .from('correlation_members')
-    .insert({ correlation_id: boardId, note: note || (title?.trim() ?? ''), title: title?.trim() || null, x: pos.x, y: pos.y })
-    .select('id, x, y, seq, title, note')
+    .insert({
+      correlation_id: boardId,
+      title, body,
+      image_url: fields.imageUrl ?? null,
+      image_w: fields.imageW ?? null,
+      image_h: fields.imageH ?? null,
+      x: pos.x, y: pos.y,
+      created_by: me,
+    })
+    .select('id, title, body, image_url, image_w, image_h, x, y, seq, data')
     .single()
   if (error || !data) return { ok: false, error: error?.message ?? '添加失败' }
+
+  const refs = parseReferences(`${title ?? ''}
+${body}`)
+  const resolved = await resolveReferences(supabase, refs.map(r => ({ type: r.type, id: r.id })))
   return {
     ok: true,
-    member: { id: data.id, kind: 'card', x: data.x, y: data.y, seq: data.seq, title: data.title ?? null, note: data.note ?? null, data: null, ref: null },
+    member: {
+      id: data.id,
+      title: data.title ?? null,
+      body: data.body ?? '',
+      image_url: data.image_url ?? null,
+      image_w: data.image_w ?? null,
+      image_h: data.image_h ?? null,
+      x: data.x ?? 0, y: data.y ?? 0, seq: data.seq ?? 0,
+      data: data.data ?? null,
+      refs: resolved,
+    },
   }
 }
 
+/**
+ * Patch a node. Editing title/body re-fires the 033 trigger, so the citation
+ * index follows the text automatically. Returns the freshly resolved refs when
+ * the text changed, so the card can re-render its chips without a reload.
+ */
 export async function updateMember(
   id: number,
-  fields: { x?: number; y?: number; seq?: number; title?: string | null; note?: string | null; data?: unknown },
-): Promise<{ ok: boolean }> {
+  fields: {
+    x?: number; y?: number; seq?: number
+    title?: string | null; body?: string
+    imageUrl?: string | null; imageW?: number | null; imageH?: number | null
+    data?: unknown
+  },
+): Promise<{ ok: boolean; refs?: ReferenceData[] }> {
   const supabase = await createClient()
   const patch: Record<string, unknown> = {}
   if (fields.x != null) patch.x = fields.x
   if (fields.y != null) patch.y = fields.y
   if (fields.seq != null) patch.seq = fields.seq
   if (fields.title !== undefined) patch.title = fields.title
-  if (fields.note !== undefined) patch.note = fields.note
+  if (fields.body !== undefined) patch.body = fields.body
+  if (fields.imageUrl !== undefined) patch.image_url = fields.imageUrl
+  if (fields.imageW !== undefined) patch.image_w = fields.imageW
+  if (fields.imageH !== undefined) patch.image_h = fields.imageH
   if (fields.data !== undefined) patch.data = fields.data
   if (Object.keys(patch).length === 0) return { ok: true }
-  const { error } = await supabase.from('correlation_members').update(patch).eq('id', id)
-  return { ok: !error }
+  patch.updated_at = new Date().toISOString()
+
+  const textChanged = fields.title !== undefined || fields.body !== undefined
+  const { data, error } = await supabase
+    .from('correlation_members').update(patch).eq('id', id)
+    .select('title, body').maybeSingle()
+  if (error) return { ok: false }
+  if (!textChanged || !data) return { ok: true }
+
+  const refs = parseReferences(`${data.title ?? ''}
+${data.body ?? ''}`)
+  return { ok: true, refs: await resolveReferences(supabase, refs.map(r => ({ type: r.type, id: r.id }))) }
 }
 
 export async function deleteMember(id: number): Promise<{ ok: boolean }> {
@@ -414,12 +443,13 @@ export async function addEdge(
   boardId: number,
   from: number,
   to: number,
+  kind: string | null = 'supports',
 ): Promise<{ ok: true; edge: BoardEdge } | { ok: false; error: string }> {
   if (from === to) return { ok: false, error: '不能连到自己' }
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('correlation_edges')
-    .insert({ correlation_id: boardId, from_member: from, to_member: to })
+    .insert({ correlation_id: boardId, from_member: from, to_member: to, kind })
     .select('id, from_member, to_member, label, directed, kind')
     .single()
   if (error || !data) return { ok: false, error: error?.message ?? '连线失败' }
@@ -464,38 +494,32 @@ export async function boardBacklinks(
   const supabase = await createClient()
   const me = await myUserId(supabase)
 
-  // ids grouped by member column
-  const byCol = new Map<string, number[]>()
-  for (const a of anchors) {
-    const col = TYPE_COL[a.type]
-    if (!col) continue
-    const arr = byCol.get(col) ?? []
-    arr.push(a.id)
-    byCol.set(col, arr)
-  }
-  if (byCol.size === 0) return {}
+  // One query over the derived citation index (033), instead of the old
+  // one-query-per-anchor-column loop. A node citing five lines produces five
+  // rows here, so every citation earns its backlink — the pre-033 model could
+  // only ever record one anchor per card.
+  const types = [...new Set(anchors.map(a => a.type))]
+  const ids = [...new Set(anchors.map(a => a.id))]
+  const { data: refs } = await supabase
+    .from('correlation_member_refs')
+    .select('correlation_id, ref_type, ref_id')
+    .in('ref_type', types)
+    .in('ref_id', ids)
+  if (!refs || refs.length === 0) return {}
 
-  // member rows referencing any of the anchors → (anchor col/id → board id)
-  type Hit = { correlation_id: number; col: string; anchorId: number }
-  const hits: Hit[] = []
-  const boardIds = new Set<number>()
-  for (const [col, ids] of byCol) {
-    const { data } = await supabase
-      .from('correlation_members')
-      .select(`correlation_id, ${col}`)
-      .in(col, ids)
-    for (const r of (data ?? []) as unknown as Record<string, number>[]) {
-      hits.push({ correlation_id: r.correlation_id, col, anchorId: r[col] })
-      boardIds.add(r.correlation_id)
-    }
-  }
-  if (boardIds.size === 0) return {}
+  // `types` x `ids` over-selects (a cross product), so keep only real pairs.
+  const wanted = new Set(anchors.map(a => `${a.type}/${a.id}`))
+  const hits = refs.filter(r => wanted.has(`${r.ref_type}/${r.ref_id}`))
+  if (hits.length === 0) return {}
 
-  // which of those boards are discoverable by the caller?
+  // Which of those boards may the caller legitimately discover? Public + own +
+  // shared-with-me. Unlisted-by-others stays hidden: surfacing it in a backlink
+  // would "list" a board whose entire point is being link-only.
+  const boardIds = [...new Set(hits.map(h => h.correlation_id))]
   const { data: boards } = await supabase
     .from('correlations')
     .select('id, title, visibility, created_by')
-    .in('id', [...boardIds])
+    .in('id', boardIds)
   let shareIds = new Set<number>()
   if (me != null) {
     const { data: shares } = await supabase
@@ -509,13 +533,14 @@ export async function boardBacklinks(
     }
   }
 
-  // assemble result, de-duping boards per anchor
+  // Assemble, de-duping boards per anchor (two nodes on one board citing the
+  // same line is still one backlink).
   const out: Record<string, Backlink[]> = {}
   const seen = new Set<string>()
   for (const h of hits) {
     const title = visible.get(h.correlation_id)
     if (title === undefined) continue
-    const key = `${COL_TYPE[h.col]}/${h.anchorId}`
+    const key = `${h.ref_type}/${h.ref_id}`
     const dedup = `${key}#${h.correlation_id}`
     if (seen.has(dedup)) continue
     seen.add(dedup)

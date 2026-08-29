@@ -152,6 +152,36 @@ speaks — `python scripts/seed_entities.py` derives characters from distinct
 `narrator`/`？？？`). Later phases enrich (aliases/name_en/summary) and extract
 relations with citations. Public read, admin/service-role write.
 
+**Clue board — one node type** (`033`): a board node is **text + an optional
+image**, nothing else. Evidence is not pinned as its own node; it's cited
+*inside* the node's text as `@type/id` tokens (the AP-2 idiom), rendered by
+`CommentMarkdown` as chips with hover previews. Before `033` a member was
+either a typed anchor (one of nine FK columns) or a free card, so citing five
+lines needed five cards and a guess looked identical to a quote.
+
+Why no `role`/`claim`/`evidence` column: groundedness is **derived** — a node
+whose text contains no refs cites nothing, and the card renders it muted. A
+flag would have to be set honestly; this can't be faked.
+
+`correlation_member_refs` is the derived citation index (`member_id`,
+`correlation_id`, `ref_type`, `ref_id`), maintained by the `sync_member_refs`
+trigger on insert/update of `title`/`body`. **Never write it from the app** —
+the trigger is the only writer, and it has no client write policy. It is
+deliberately generic (indexes any `@word/digits`), so the ref vocabulary lives
+in exactly one place, `REF_TYPE_COL` in `lib/references.ts`; an unknown type
+simply fails to resolve at read time. AP-13 backlinks read this table, which is
+why they survived the rewrite — and improved, since one node citing five things
+now yields five backlinks.
+
+Edges carry all the argument structure, so `EDGE_KINDS` (in `BoardEditor.tsx`)
+is now argumentative: supports / contradicts / causes / precedes / answers.
+The old world-model kinds (same-person / allied / opposed) were dropped — they
+duplicate AP-22's `entity_relations`, which carry source citations; a
+hand-drawn line doesn't. Board images go to R2 under `board-media/<sha1>` via
+`uploadImage(bytes, type, prefix)`, downscaled client-side first by
+`lib/downscale.ts` (WebP, longest edge 1600; GIFs pass through untouched so
+animation survives).
+
 **RLS gotcha — mutual policy recursion** (`032`): if table A's policy
 subqueries table B while B's policy subqueries A, Postgres aborts every read
 of either with `42P17 infinite recursion detected in policy for relation …`.
