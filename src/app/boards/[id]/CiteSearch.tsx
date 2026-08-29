@@ -31,6 +31,10 @@ const TYPES: [string, string][] = [
 // Types whose rows live under a story, so scoping by story/chapter helps.
 const SCOPED = new Set(['node', 'chapter'])
 
+// Results page size. Small enough that the first page is fast, big enough that
+// most searches never need a second.
+const PAGE = 30
+
 const inputCls =
   'w-full bg-ark-surface border border-ark-border focus:border-ark-accent outline-none ' +
   'px-2 py-1 text-xs text-ark-text placeholder:text-ark-muted'
@@ -41,6 +45,8 @@ export default function CiteSearch({ onPick }: { onPick: (token: string, ref: Re
   const [results, setResults] = useState<ReferenceData[]>([])
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [more, setMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
   const box = useRef<HTMLDivElement>(null)
 
   // Scope
@@ -100,23 +106,58 @@ export default function CiteSearch({ onPick }: { onPick: (token: string, ref: Re
 
   // Main search. With a scope set, an empty query is meaningful ("every line
   // 凯尔希 says in this chapter"), so it runs on filter changes too.
+  //
+  // Page 0 only. Later pages come from the scroll handler, so this effect never
+  // needs to know how far the user has scrolled.
   useEffect(() => {
     const query = q.trim()
     const hasFilter = !!story || chapterId != null || !!speaker
     const t = setTimeout(async () => {
-      if (!query && !hasFilter) { setResults([]); setOpen(false); return }
+      if (!query && !hasFilter) { setResults([]); setHasMore(false); setOpen(false); return }
       setBusy(true)
       const r = await searchEntities(query, type, {
         storyId: story?.id,
         chapterId: chapterId ?? undefined,
         speaker: speaker || undefined,
+        limit: PAGE,
       })
       setBusy(false)
       setResults(r)
+      // A full page implies there may be another; the next fetch settles it.
+      setHasMore(r.length === PAGE)
       setOpen(true)
     }, query ? 300 : 0)
     return () => clearTimeout(t)
   }, [q, type, story, chapterId, speaker])
+
+  /**
+   * Append the next page. Called from the list's scroll handler — an event, so
+   * no synchronous-setState-in-effect problem, and no observer to tear down.
+   */
+  async function loadMore() {
+    if (busy || more || !hasMore) return
+    setMore(true)
+    const next = await searchEntities(q.trim(), type, {
+      storyId: story?.id,
+      chapterId: chapterId ?? undefined,
+      speaker: speaker || undefined,
+      limit: PAGE,
+      offset: results.length,
+    })
+    // De-dupe defensively: a row edited mid-scroll could otherwise repeat and
+    // collide on the React key.
+    setResults(prev => {
+      const seen = new Set(prev.map(r => r.key))
+      return [...prev, ...next.filter(r => !seen.has(r.key))]
+    })
+    setHasMore(next.length === PAGE)
+    setMore(false)
+  }
+
+  function onScroll(e: React.UIEvent<HTMLUListElement>) {
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) void loadMore()
+  }
 
   // Close the results list on outside click.
   useEffect(() => {
@@ -221,8 +262,11 @@ export default function CiteSearch({ onPick }: { onPick: (token: string, ref: Re
       />
 
       {open && (
-        <ul className="absolute left-0 top-full z-50 mt-1 w-full max-h-64 overflow-y-auto
-                       bg-ark-bg border border-ark-border shadow-2xl">
+        <ul
+          onScroll={onScroll}
+          className="absolute left-0 top-full z-50 mt-1 w-full max-h-64 overflow-y-auto
+                     bg-ark-bg border border-ark-border shadow-2xl"
+        >
           {busy && (
             <li className="px-3 py-2 font-mono text-[10px] text-ark-muted tracking-widest">{'// 搜索中…'}</li>
           )}
@@ -245,6 +289,14 @@ export default function CiteSearch({ onPick }: { onPick: (token: string, ref: Re
               </button>
             </li>
           ))}
+          {more && (
+            <li className="px-3 py-2 font-mono text-[10px] text-ark-muted tracking-widest">{'// 载入中…'}</li>
+          )}
+          {!more && !busy && results.length > 0 && !hasMore && (
+            <li className="px-3 py-1.5 font-mono text-[10px] text-ark-border tracking-widest">
+              {'//'} 共 {results.length} 条 · 已到底
+            </li>
+          )}
         </ul>
       )}
     </div>

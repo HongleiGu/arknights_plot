@@ -173,6 +173,15 @@ simply fails to resolve at read time. AP-13 backlinks read this table, which is
 why they survived the rewrite — and improved, since one node citing five things
 now yields five backlinks.
 
+Citing a line has to be cheap or nobody grounds anything, so `CiteSearch`
+narrows **story → chapter → speaker** before searching, and the results list
+pages in on scroll (`searchEntities` takes `limit`/`offset`; "more" is inferred
+from a full page rather than a second count query). `speaker` is a hard `eq`
+filter, never a scored term — picking 凯尔希 must not surface lines *about* her.
+The speaker dropdown comes from `scope_speakers()` (`034`), which groups in the
+database; the pre-`034` fallback in `listSpeakers` dedupes client-side and has
+to cap the scan, which silently truncated long stories.
+
 Edges carry all the argument structure, so `EDGE_KINDS` (in `BoardEditor.tsx`)
 is now argumentative: supports / contradicts / causes / precedes / answers.
 The old world-model kinds (same-person / allied / opposed) were dropped — they

@@ -70,8 +70,7 @@ export interface Board {
 
 /** Title + body, the exact text the 033 trigger scans for `@type/id` tokens. */
 function joinText(title: string | null | undefined, body: string | null | undefined): string {
-  return `${title ?? ''}
-${body ?? ''}`
+  return [title ?? '', body ?? ''].join('\n')
 }
 
 async function myUserId(supabase: Db): Promise<number | null> {
@@ -586,7 +585,12 @@ const TYPE_SEARCH_COLS: Record<string, string[]> = {
 export async function searchEntities(
   query: string,
   type: string,
-  opts?: { storyId?: number; chapterId?: number; speaker?: string },
+  opts?: {
+    storyId?: number; chapterId?: number; speaker?: string
+    /** Page size. The caller infers "more available" from a full page. */
+    limit?: number
+    offset?: number
+  },
 ): Promise<ReferenceData[]> {
   const table = TYPE_TABLE[type]
   const cols = TYPE_SEARCH_COLS[type]
@@ -601,6 +605,9 @@ export async function searchEntities(
   // query would mean "the entire table" — so still bail.
   const hasFilter = opts?.storyId != null || opts?.chapterId != null || !!speaker
   if (tokens.length === 0 && !hasFilter) return []
+
+  const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 100)
+  const offset = Math.max(opts?.offset ?? 0, 0)
 
   const supabase = await createClient()
 
@@ -628,14 +635,21 @@ export async function searchEntities(
   if (scopeChapterIds) q1 = q1.in('chapter_id', scopeChapterIds)
   if (speaker) q1 = q1.eq('speaker', speaker)
   for (const tok of tokens) q1 = q1.or(cols.map(c => `${c}.ilike.%${tok}%`).join(','))
-  const { data: d1 } = await q1.limit(30)
+  // Ordered by id so paging is stable — without it, successive pages could
+  // repeat or skip rows.
+  const { data: d1 } = await q1.range(offset, offset + limit - 1)
   let ids = (d1 ?? []).map(r => r.id as number)
 
   // Pass 2 — OR fallback. A natural multi-word query ("W 死去 加入") almost never
   // has every token in one row, so AND dead-ends at 0. Retry matching ANY token
   // and rank by how many distinct tokens the row hits, so the best rows surface.
-  if (ids.length === 0 && tokens.length > 1) {
-    let q2 = supabase.from(table).select(['id', ...cols].join(', '))
+  //
+  // Only at offset 0: an empty pass 1 on a later page just means we ran off the
+  // end of a good AND result set, and injecting OR-ranked rows there would be
+  // wrong. The cost is one empty follow-up request when a fallback page happens
+  // to fill exactly — harmless, and rarer than getting the ranking wrong.
+  if (ids.length === 0 && offset === 0 && tokens.length > 1) {
+    let q2 = supabase.from(table).select(['id', ...cols].join(', ')).order('id', { ascending: true })
     if (scopeStory != null) q2 = q2.eq('story_id', scopeStory)
     if (scopeChapter != null) q2 = q2.eq('chapter_id', scopeChapter)
     if (scopeChapterIds) q2 = q2.in('chapter_id', scopeChapterIds)
@@ -650,7 +664,7 @@ export async function searchEntities(
         hits: lowered.filter(t => cols.some(c => String(r[c] ?? '').toLowerCase().includes(t))).length,
       }))
       .sort((a, b) => b.hits - a.hits)
-      .slice(0, 30)
+      .slice(0, limit)
       .map(x => x.id)
   }
 
@@ -690,25 +704,36 @@ export interface SpeakerOption {
  * Who actually speaks within a story/chapter, most talkative first.
  *
  * Scoped deliberately: the global speaker list is ~900 names, but any given
- * chapter has a handful, which is what makes this usable as a dropdown. Reads
- * only the `speaker` column and dedupes here — Postgres has no DISTINCT over
- * PostgREST. The cap bounds the worst case (a long story); if a story ever
- * exceeds it the tail is just less-frequent speakers, and typing into the
- * combobox still filters the full set via `speaker` on the search itself.
+ * chapter has a handful, which is what makes it usable as a dropdown.
+ *
+ * Grouped in the database (034) — one row per speaker rather than one per line.
+ * The fallback below is the pre-034 path: it dedupes client-side and has to cap
+ * the scan, which silently truncated the tail on long stories. Kept only so the
+ * picker degrades instead of breaking when 034 hasn't been applied yet.
  */
 export async function listSpeakers(
   opts: { storyId?: number; chapterId?: number },
 ): Promise<SpeakerOption[]> {
+  if (opts.storyId == null && opts.chapterId == null) return []
   const supabase = await createClient()
-  let chapterIds: number[] | null = null
+
+  const { data: grouped, error } = await supabase.rpc('scope_speakers', {
+    p_story: opts.storyId ?? null,
+    p_chapter: opts.chapterId ?? null,
+  })
+  if (!error) {
+    return ((grouped ?? []) as { speaker: string; lines: number }[])
+      .map(r => ({ name: r.speaker, lines: Number(r.lines) }))
+  }
+
+  // ---- fallback: 034 not applied ----
+  let chapterIds: number[]
   if (opts.chapterId != null) {
     chapterIds = [opts.chapterId]
-  } else if (opts.storyId != null) {
-    const { data: chs } = await supabase.from('chapters').select('id').eq('story_id', opts.storyId)
+  } else {
+    const { data: chs } = await supabase.from('chapters').select('id').eq('story_id', opts.storyId!)
     chapterIds = (chs ?? []).map(c => c.id as number)
     if (chapterIds.length === 0) return []
-  } else {
-    return []
   }
 
   const { data } = await supabase
@@ -721,8 +746,6 @@ export async function listSpeakers(
   const counts = new Map<string, number>()
   for (const r of data ?? []) {
     const name = (r.speaker as string | null)?.trim()
-    // Same exclusions as scripts/seed_entities.py — narration and unknowns
-    // aren't people you'd want to filter dialogue by.
     if (!name || name === 'narrator' || /^[？?]+$/.test(name)) continue
     counts.set(name, (counts.get(name) ?? 0) + 1)
   }
