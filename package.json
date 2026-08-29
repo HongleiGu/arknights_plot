@@ -16,12 +16,14 @@
     "@supabase/supabase-js": "^2.101.1",
     "@xyflow/react": "^12.11.0",
     "next": "16.2.2",
+    "openai": "^6.48.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-breaks": "^4.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "stripe": "^22.6.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

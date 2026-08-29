@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import CommentThread from '@/components/CommentThread'
 import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
 import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
+import { boardBacklinks, type Backlink } from '@/app/actions/boards'
 
 const PAGE_SIZE = 100
 
@@ -202,6 +203,19 @@ export default async function ChapterPage({ params, searchParams }: Props) {
     for (const b of branches) for (const bn of b)
       bn.commentCount = commentCounts.get(bn.id) ?? 0
 
+  // ---- 4b. Board backlinks (AP-13) ----
+  // Which clue boards reference this chapter / story / any visible node.
+  // Visibility-filtered inside the action (public + own + shared only).
+  const backlinks = await boardBacklinks([
+    { type: 'story', id: story.id },
+    { type: 'chapter', id: chapterId },
+    ...nodeIds.map(id => ({ type: 'node', id })),
+  ])
+  const chapterBacklinks = [
+    ...(backlinks[`chapter/${chapterId}`] ?? []),
+    ...(backlinks[`story/${story.id}`] ?? []),
+  ]
+
   // ---- 5. Ending supplement (008) ----
   // Epilogue prose for an ending chapter (RO?-END-n), stored in text_clusters
   // (kind='ending_supplement') keyed by story_id + level_code. Belongs after
@@ -276,6 +290,17 @@ export default async function ChapterPage({ params, searchParams }: Props) {
             <span className="text-ark-border"> / </span>
             <span>{pageCount.toString().padStart(2, '0')}</span>
           </p>
+          {chapterBacklinks.length > 0 && (
+            <p className="font-mono text-[10px] text-ark-muted mt-2 tracking-widest uppercase flex items-center gap-2 flex-wrap">
+              <span className="text-ark-accent">◇</span> 出现在
+              {chapterBacklinks.map(b => (
+                <Link key={b.board_id} href={`/boards/${b.board_id}`}
+                      className="normal-case text-ark-accent/80 hover:text-ark-accent underline underline-offset-2">
+                  {b.title}
+                </Link>
+              ))}
+            </p>
+          )}
         </div>
 
         {/* Node list */}
@@ -283,6 +308,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
           {nodeList.map(n => (
             <li key={n.id} className="group" id={`n${n.seq}`}>
               <NodeBody node={n} decision={decisionMap.get(n.id)} />
+              <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
               <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
             </li>
           ))}
@@ -353,6 +379,42 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   )
 }
 
+
+// ---------------------------------------------------------------------------
+// Per-node board backlinks (AP-13) — a subtle chip aligned to the node gutter;
+// hovering reveals the boards that reference this line.
+// ---------------------------------------------------------------------------
+
+function NodeBacklinks({ boards }: { boards?: Backlink[] }) {
+  if (!boards || boards.length === 0) return null
+  return (
+    // 3.75rem = gutter w-12 (3rem) + gap-3 (0.75rem), so the chip lines up
+    // under the node content rather than the line-number gutter.
+    <div className="pl-15">
+      <span className="relative inline-block group/bl align-baseline">
+        <span className="font-mono text-[10px] text-ark-accent/70 tracking-widest cursor-default hover:text-ark-accent">
+          ◇ {boards.length} 板
+        </span>
+        <span
+          className="pointer-events-none group-hover/bl:pointer-events-auto
+                     invisible opacity-0 group-hover/bl:visible group-hover/bl:opacity-100
+                     absolute left-0 top-full z-30 mt-1 w-56 p-2
+                     bg-ark-bg border border-ark-border shadow-2xl transition-opacity"
+        >
+          <span className="block font-mono text-[9px] text-ark-muted tracking-widest uppercase mb-1">
+            {'//'} 出现在
+          </span>
+          {boards.map(b => (
+            <Link key={b.board_id} href={`/boards/${b.board_id}`}
+                  className="block text-xs text-ark-text hover:text-ark-accent truncate py-0.5">
+              {b.title}
+            </Link>
+          ))}
+        </span>
+      </span>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Node body renderer (server component — no interactivity)

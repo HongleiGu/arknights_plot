@@ -137,6 +137,60 @@ is documented in `data/is_text.example.json`. Each chunk is either a plain strin
 (→ body, no title) or `{ "title": "…", "body": "…" }`. `刻俄柏的灰蕈迷境` has no
 character records — simply no rows; no special-casing needed.
 
+**World graph — `entities` + `entity_relations`** (`026`, AP-22): a
+cross-cutting knowledge graph (NOT a per-shape table — it doesn't FK to
+`stories`). `entities` = one row per character/location/faction/concept/
+artefact (`type` free-text, `UNIQUE(type, name)`, `aliases[]`, `summary` +
+`summary_status`, `mention_count`, `source_url`). `entity_relations` = typed,
+self-referencing edges (`kind` = 所属/盟友/敌对/位于/…) that carry
+`source_refs[]` (`@node`/`@chapter`/`@text` citations) so the graph stays
+grounded to internal canon, never pretraining. Postgres-native "GraphRAG":
+traversal via recursive CTEs, **no Neo4j/Cypher** (see AP-22 for why);
+pgvector deferred. P1 seeds the **character** skeleton from who actually
+speaks — `python scripts/seed_entities.py` derives characters from distinct
+`nodes.speaker` (grounded, idempotent upsert on `(type, name)`; excludes
+`narrator`/`？？？`). Later phases enrich (aliases/name_en/summary) and extract
+relations with citations. Public read, admin/service-role write.
+
+**Saved AI sessions — `ai_conversations`** (`030`, AP-20): the assistant used
+to be ephemeral (transcript in React state only). A session can now be saved,
+linked and shared. `ai_conversations` (owner, title, `visibility`
+private/unlisted/public, optional `board_id` context) + `ai_conversation_messages`
+(the transcript; `parts` JSONB keeps the tool trace so a shared link replays
+exactly what the runner saw — **append-only**, no UPDATE policy) +
+`ai_conversation_shares` (viewer/editor). Deliberately the same shape as
+`019`'s board sharing, down to `ai_convo_editable()` mirroring `board_editable()`
+and `share_ai_convo_by_email()` mirroring `share_board_by_email()` — so
+`components/ShareDialog.tsx` serves both. Editors may append turns; only the
+owner can rename, change visibility, or manage shares. `board_id` is the
+"ask in a board's context" half of AP-20: the route nudges the agent to call
+`read_board`, which reads under the **caller's** RLS (AP-19), so anchoring a
+session to a board grants a collaborator no access they didn't already have.
+UI: `/ai` (list), `/ai/[id]` (replay + continue), save/share from the panel.
+
+**Billing — `billing_plans` + `subscriptions`** (`031`, AP-21): subscription
+tiers over a free quota. No new metering — a plan just sets the caller's
+monthly USD allowance, which the existing `ai_budget_check()` (AP-17) enforces
+against the `ai_usage` ledger. Entitlement resolves first-non-NULL:
+`users.ai_limit_usd` override → active subscription's plan → the `free` plan →
+`ai_budget_config.per_user_limit_usd`; a NULL plan limit means unlimited.
+`ai_can_use()` gains a `subscriber` access mode. `billing_events` gives the
+webhook idempotency (UNIQUE `stripe_event_id`) and an audit trail.
+**Stripe is the only writer of subscription state**: `subscriptions` has *no*
+client write policy, so a plan can only be granted by a signature-verified
+Stripe event. That webhook (`api/billing/webhook`) is the sole sanctioned
+service-role caller in the app — see the header comment in
+`src/lib/supabase/admin.ts`; everything else still goes through the caller's
+RLS per AP-19. Ships **unconfigured** (the AP-8 Turnstile precedent): with no
+`STRIPE_SECRET_KEY`, `/pricing` is read-only and everyone sits on the free
+tier. Prices live in Stripe; `billing_plans` only stores the price id + a
+display amount, editable in `/admin/ai`.
+
+Stripe `.env` keys (all optional): `STRIPE_SECRET_KEY`,
+`STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_SITE_URL`. Local webhook:
+`stripe listen --forward-to localhost:3000/api/billing/webhook`. Subscribe to
+`checkout.session.completed` and `customer.subscription.created/updated/deleted`.
+
 **Branch dialogue is unified into `nodes`** (no separate `branch_nodes`
 table): a predicate-branch line is a `nodes` row with `branch_id` set
 (FK → `predicate_branches`, added via ALTER in `002` to break the

@@ -20,9 +20,10 @@ export const REF_TYPE_COL: Record<string, string> = {
   option: 'event_option_id',
   text: 'text_chunk_id',
   furniture: 'furniture_item_id',
+  entity: 'entity_id',
 }
 
-const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|user)\/(\d+)/g
+const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|entity|user)\/(\d+)/g
 
 export interface ReferenceData {
   key: string            // "node/68725"
@@ -78,6 +79,9 @@ export async function resolveReferences(
     fetchByIds('event_options', 'id, event_id, label, description, outcome', idsOf('option')),
     fetchByIds('furniture_items', 'id, story_id, name, description', idsOf('furniture')),
   ])
+  // World-graph entities (026) — no story parent; they're cross-cutting.
+  const entitiesD = await fetchByIds('entities', 'id, type, name, name_en, summary, mention_count', idsOf('entity'))
+  const entityMap = new Map(entitiesD.map(e => [e.id as number, e]))
 
   // Stage 2 — parents of the above.
   const extraChapterIds = nodes.map(n => n.chapter_id as number).filter(id => !idsOf('chapter').includes(id))
@@ -164,6 +168,11 @@ export async function resolveReferences(
       const f = furnitureMap.get(r.id); const s = f ? storyMap.get(f.story_id as number) : undefined
       if (!f || !s) continue
       push(f.name as string, storyPath(s), trunc(f.description as string) ?? (s.name as string))
+    } else if (r.type === 'entity') {
+      const e = entityMap.get(r.id); if (!e) continue
+      const preview = trunc(e.summary as string)
+        ?? `${e.type}${e.mention_count ? ` · ${e.mention_count} 次出场` : ''}`
+      push(e.name as string, `/world/${e.id}`, preview)
     }
   }
   return out

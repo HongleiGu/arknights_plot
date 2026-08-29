@@ -93,6 +93,9 @@ async function ensureUserRow(): Promise<number | null> {
     .insert({
       clerk_id:     user.id,
       display_name: (user.user_metadata?.display_name as string | undefined) ?? null,
+      // Stored for board invite-by-email (AP-12). Client SELECT on this column
+      // is revoked in 019 — email never reaches a browser.
+      email:        user.email ?? null,
     })
     .select('id')
     .single()

@@ -7,6 +7,7 @@ import type { ReferenceData } from '@/lib/references'
 const TYPES: [string, string][] = [
   ['story', '剧情'], ['chapter', '章节'], ['node', '台词'], ['gadget', '藏品'],
   ['event', '事件'], ['option', '选项'], ['text', '文段'], ['furniture', '家具'],
+  ['entity', '实体'],
 ]
 
 /**

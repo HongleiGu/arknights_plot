@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/actions/auth'
 import NotificationBell from '@/components/NotificationBell'
+import Assistant from '@/components/Assistant'
 
 export default async function Header() {
   const supabase = await createClient()
@@ -12,20 +13,28 @@ export default async function Header() {
   // Seed the notification bell (users.id + unread count) for signed-in users.
   let bellUserId: number | null = null
   let bellUnread = 0
+  let isAdmin = false
+  let canUseAi = false
   if (user) {
-    const { data: me } = await supabase.from('users').select('id').eq('clerk_id', user.id).maybeSingle()
+    const { data: me } = await supabase.from('users').select('id, is_admin').eq('clerk_id', user.id).maybeSingle()
     if (me) {
       bellUserId = me.id
+      isAdmin = !!me.is_admin
       const { count } = await supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', me.id)
         .is('read_at', null)
       bellUnread = count ?? 0
+      // AI access (AP-18): global mode + per-user override, resolved in the DB.
+      // Fall back to admin-only if the function isn't present yet (pre-migration).
+      const { data: can, error: canErr } = await supabase.rpc('ai_can_use', { p_user: me.id })
+      canUseAi = canErr ? isAdmin : can === true
     }
   }
 
   return (
+    <>
     <header
       className="fixed top-0 left-0 right-0 z-50 h-14
                  bg-ark-bg/90 backdrop-blur-sm
@@ -63,12 +72,44 @@ export default async function Header() {
         {/* ---- Auth strip ---- */}
         <div className="flex items-center gap-3 text-ark-muted">
           <Link
+            href="/world"
+            className="hidden sm:inline tracking-widest uppercase text-ark-muted
+                       hover:text-ark-accent transition-colors duration-200"
+          >
+            {'// 世界'}
+          </Link>
+          <Link
             href="/boards"
             className="hidden sm:inline tracking-widest uppercase text-ark-muted
                        hover:text-ark-accent transition-colors duration-200"
           >
             {'// 线索板'}
           </Link>
+          {user && (
+            <Link
+              href="/ai"
+              className="hidden sm:inline tracking-widest uppercase text-ark-muted
+                         hover:text-ark-accent transition-colors duration-200"
+            >
+              {'// AI 会话'}
+            </Link>
+          )}
+          <Link
+            href="/pricing"
+            className="hidden md:inline tracking-widest uppercase text-ark-muted
+                       hover:text-ark-accent transition-colors duration-200"
+          >
+            {'// 订阅'}
+          </Link>
+          {isAdmin && (
+            <Link
+              href="/admin/ai"
+              className="hidden sm:inline tracking-widest uppercase text-ark-muted
+                         hover:text-ark-accent transition-colors duration-200"
+            >
+              {'// 预算'}
+            </Link>
+          )}
           {user ? (
             <>
               {bellUserId != null && (
@@ -109,5 +150,12 @@ export default async function Header() {
         </div>
       </div>
     </header>
+
+    {/* AI 分析终端 — shown to any user allowed by the AI access policy (AP-18).
+        Rendered OUTSIDE <header>: the header's backdrop-blur creates a containing
+        block for position:fixed descendants, which would otherwise anchor the
+        panel to the header, not the viewport. */}
+    {canUseAi && <Assistant />}
+    </>
   )
 }
