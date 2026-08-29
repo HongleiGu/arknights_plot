@@ -68,6 +68,12 @@ export interface Board {
   edges: BoardEdge[]
 }
 
+/** Title + body, the exact text the 033 trigger scans for `@type/id` tokens. */
+function joinText(title: string | null | undefined, body: string | null | undefined): string {
+  return `${title ?? ''}
+${body ?? ''}`
+}
+
 async function myUserId(supabase: Db): Promise<number | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
@@ -184,8 +190,7 @@ export async function getBoard(id: number): Promise<Board | null> {
 
   // Every citation across the whole board resolves in ONE batch, then each
   // node picks its own out of the map — rather than a lookup per node.
-  const perMember = rows.map(r => parseReferences(`${r.title ?? ''}
-${r.body ?? ''}`))
+  const perMember = rows.map(r => parseReferences(joinText(r.title, r.body)))
   const seen = new Set<string>()
   const allRefs: { type: string; id: number }[] = []
   for (const refs of perMember) {
@@ -374,8 +379,7 @@ export async function addMember(
     .single()
   if (error || !data) return { ok: false, error: error?.message ?? '添加失败' }
 
-  const refs = parseReferences(`${title ?? ''}
-${body}`)
+  const refs = parseReferences(joinText(title, body))
   const resolved = await resolveReferences(supabase, refs.map(r => ({ type: r.type, id: r.id })))
   return {
     ok: true,
@@ -428,8 +432,7 @@ export async function updateMember(
   if (error) return { ok: false }
   if (!textChanged || !data) return { ok: true }
 
-  const refs = parseReferences(`${data.title ?? ''}
-${data.body ?? ''}`)
+  const refs = parseReferences(joinText(data.title, data.body))
   return { ok: true, refs: await resolveReferences(supabase, refs.map(r => ({ type: r.type, id: r.id }))) }
 }
 
@@ -583,7 +586,7 @@ const TYPE_SEARCH_COLS: Record<string, string[]> = {
 export async function searchEntities(
   query: string,
   type: string,
-  opts?: { storyId?: number; chapterId?: number },
+  opts?: { storyId?: number; chapterId?: number; speaker?: string },
 ): Promise<ReferenceData[]> {
   const table = TYPE_TABLE[type]
   const cols = TYPE_SEARCH_COLS[type]
@@ -591,7 +594,13 @@ export async function searchEntities(
 
   // Tokenise; strip characters that would break PostgREST's or() grammar.
   const tokens = query.replace(/[(),]/g, ' ').split(/\s+/).map(t => t.trim()).filter(Boolean)
-  if (tokens.length === 0) return []
+  const speaker = opts?.speaker?.trim() || null
+  // A filter-only search is legitimate now that the citation picker can narrow
+  // to a story/chapter/speaker: "every line 凯尔希 says in this chapter" is a
+  // useful query with no text at all. Without any filter, though, an empty
+  // query would mean "the entire table" — so still bail.
+  const hasFilter = opts?.storyId != null || opts?.chapterId != null || !!speaker
+  if (tokens.length === 0 && !hasFilter) return []
 
   const supabase = await createClient()
 
@@ -611,10 +620,13 @@ export async function searchEntities(
   }
 
   // Pass 1 — AND across tokens (precise: every token must hit the same row).
-  let q1 = supabase.from(table).select('id')
+  // `speaker` is a hard filter, not a scored term: picking 凯尔希 must never
+  // surface a line someone else says about her.
+  let q1 = supabase.from(table).select('id').order('id', { ascending: true })
   if (scopeStory != null) q1 = q1.eq('story_id', scopeStory)
   if (scopeChapter != null) q1 = q1.eq('chapter_id', scopeChapter)
   if (scopeChapterIds) q1 = q1.in('chapter_id', scopeChapterIds)
+  if (speaker) q1 = q1.eq('speaker', speaker)
   for (const tok of tokens) q1 = q1.or(cols.map(c => `${c}.ilike.%${tok}%`).join(','))
   const { data: d1 } = await q1.limit(30)
   let ids = (d1 ?? []).map(r => r.id as number)
@@ -627,6 +639,7 @@ export async function searchEntities(
     if (scopeStory != null) q2 = q2.eq('story_id', scopeStory)
     if (scopeChapter != null) q2 = q2.eq('chapter_id', scopeChapter)
     if (scopeChapterIds) q2 = q2.in('chapter_id', scopeChapterIds)
+    if (speaker) q2 = q2.eq('speaker', speaker)
     q2 = q2.or(tokens.flatMap(t => cols.map(c => `${c}.ilike.%${t}%`)).join(','))
     const { data: d2 } = await q2.limit(80)
     const rows = (d2 ?? []) as unknown as Record<string, unknown>[]
@@ -643,4 +656,77 @@ export async function searchEntities(
 
   if (ids.length === 0) return []
   return resolveReferences(supabase, ids.map(id => ({ type, id })))
+}
+
+// ---- citation scope pickers (033) ------------------------------------------
+// Dialogue is by far the biggest table, so citing a line needs narrowing before
+// searching: story → chapter → speaker. These feed CiteSearch's scope row.
+
+export interface ChapterOption {
+  id: number
+  label: string
+}
+
+/** Chapters of a story, in reading order, for the scope dropdown. */
+export async function listChapters(storyId: number): Promise<ChapterOption[]> {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('chapters')
+    .select('id, level_code, level_name, order_in_story')
+    .eq('story_id', storyId)
+    .order('order_in_story', { ascending: true })
+  return (data ?? []).map(c => ({
+    id: c.id,
+    label: [c.level_code, c.level_name].filter(Boolean).join(' ') || `#${c.id}`,
+  }))
+}
+
+export interface SpeakerOption {
+  name: string
+  lines: number
+}
+
+/**
+ * Who actually speaks within a story/chapter, most talkative first.
+ *
+ * Scoped deliberately: the global speaker list is ~900 names, but any given
+ * chapter has a handful, which is what makes this usable as a dropdown. Reads
+ * only the `speaker` column and dedupes here — Postgres has no DISTINCT over
+ * PostgREST. The cap bounds the worst case (a long story); if a story ever
+ * exceeds it the tail is just less-frequent speakers, and typing into the
+ * combobox still filters the full set via `speaker` on the search itself.
+ */
+export async function listSpeakers(
+  opts: { storyId?: number; chapterId?: number },
+): Promise<SpeakerOption[]> {
+  const supabase = await createClient()
+  let chapterIds: number[] | null = null
+  if (opts.chapterId != null) {
+    chapterIds = [opts.chapterId]
+  } else if (opts.storyId != null) {
+    const { data: chs } = await supabase.from('chapters').select('id').eq('story_id', opts.storyId)
+    chapterIds = (chs ?? []).map(c => c.id as number)
+    if (chapterIds.length === 0) return []
+  } else {
+    return []
+  }
+
+  const { data } = await supabase
+    .from('nodes')
+    .select('speaker')
+    .in('chapter_id', chapterIds)
+    .not('speaker', 'is', null)
+    .limit(8000)
+
+  const counts = new Map<string, number>()
+  for (const r of data ?? []) {
+    const name = (r.speaker as string | null)?.trim()
+    // Same exclusions as scripts/seed_entities.py — narration and unknowns
+    // aren't people you'd want to filter dialogue by.
+    if (!name || name === 'narrator' || /^[？?]+$/.test(name)) continue
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .map(([name, lines]) => ({ name, lines }))
+    .sort((a, b) => b.lines - a.lines)
 }
