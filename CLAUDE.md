@@ -152,6 +152,22 @@ speaks — `python scripts/seed_entities.py` derives characters from distinct
 `narrator`/`？？？`). Later phases enrich (aliases/name_en/summary) and extract
 relations with citations. Public read, admin/service-role write.
 
+**RLS gotcha — mutual policy recursion** (`032`): if table A's policy
+subqueries table B while B's policy subqueries A, Postgres aborts every read
+of either with `42P17 infinite recursion detected in policy for relation …`.
+`019` shipped exactly that (`correlations` ↔ `correlation_shares`), which took
+down *all* board reads for non-service-role callers — the service role masks it
+completely, so it only shows up as a real user. **Rule: a policy must never
+subquery a table whose own policy subqueries back.** Put the cross-table lookup
+in a `SECURITY DEFINER` helper (exempt from RLS on what it reads) and call that
+from the policy — `my_shared_board_ids()` / `my_owned_board_ids()` /
+`board_readable()` / `board_editable()`, mirrored for sessions in `030`. Keep
+those helpers caller-scoped (resolve the user via `app_uid()` internally, never
+take a user id parameter) so they can't be used to enumerate someone else's
+access. Quick check for any new sharing table: `GET /rest/v1/<table>?select=id&limit=1`
+with the **anon** key — the service role bypasses RLS and will happily return 200
+on a table that is fully broken.
+
 **Saved AI sessions — `ai_conversations`** (`030`, AP-20): the assistant used
 to be ephemeral (transcript in React state only). A session can now be saved,
 linked and shared. `ai_conversations` (owner, title, `visibility`

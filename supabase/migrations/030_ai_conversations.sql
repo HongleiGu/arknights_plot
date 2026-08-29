@@ -79,11 +79,46 @@ CREATE INDEX IF NOT EXISTS idx_ai_convo_shares_convo ON ai_conversation_shares(c
 CREATE INDEX IF NOT EXISTS idx_ai_convo_shares_user  ON ai_conversation_shares(user_id);
 ALTER TABLE ai_conversation_shares ENABLE ROW LEVEL SECURITY;
 
--- ---- 4. helper (mirrors board_editable from 019) ----------------------------
+-- ---- 4. helpers (mirror the board ones, post-032) ---------------------------
 -- Defined after the shares table, since a LANGUAGE sql body is validated at
 -- CREATE time. app_uid() comes from 019.
+--
+-- All SECURITY DEFINER, for the reason 032 documents: if the conversations
+-- policy subqueried ai_conversation_shares while that table's own policy
+-- subqueried ai_conversations, the two would recurse forever (42P17 —
+-- exactly the bug 019 shipped for boards). A definer function is exempt from
+-- RLS on the tables it reads, which cuts the cycle. Each answers only "what
+-- may the CALLER see" via app_uid(), so nothing new is disclosed.
+
+-- Sessions shared with the caller. Reads ONLY the shares table.
+CREATE OR REPLACE FUNCTION my_shared_convo_ids() RETURNS SETOF INT
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT conversation_id FROM ai_conversation_shares WHERE user_id = app_uid()
+$$;
+GRANT EXECUTE ON FUNCTION my_shared_convo_ids() TO anon, authenticated;
+
+-- Sessions the caller owns. Reads ONLY the conversations table.
+CREATE OR REPLACE FUNCTION my_owned_convo_ids() RETURNS SETOF INT
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT id FROM ai_conversations WHERE created_by = app_uid()
+$$;
+GRANT EXECUTE ON FUNCTION my_owned_convo_ids() TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION ai_convo_readable(cid INT) RETURNS BOOLEAN
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM ai_conversations c
+     WHERE c.id = cid
+       AND (c.visibility <> 'private'
+            OR c.created_by = app_uid()
+            OR EXISTS (SELECT 1 FROM ai_conversation_shares s
+                        WHERE s.conversation_id = c.id AND s.user_id = app_uid()))
+  )
+$$;
+GRANT EXECUTE ON FUNCTION ai_convo_readable(INT) TO anon, authenticated;
+
 CREATE OR REPLACE FUNCTION ai_convo_editable(cid INT) RETURNS BOOLEAN
-  LANGUAGE sql STABLE AS $$
+  LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT EXISTS (SELECT 1 FROM ai_conversations c
                   WHERE c.id = cid AND c.created_by = app_uid())
       OR EXISTS (SELECT 1 FROM ai_conversation_shares s
@@ -100,7 +135,7 @@ DROP POLICY IF EXISTS "read shared"  ON ai_conversations;
 CREATE POLICY "read shared" ON ai_conversations FOR SELECT USING (
   visibility <> 'private'
   OR created_by = app_uid()
-  OR id IN (SELECT conversation_id FROM ai_conversation_shares WHERE user_id = app_uid())
+  OR id IN (SELECT my_shared_convo_ids())
 );
 DROP POLICY IF EXISTS "owner insert" ON ai_conversations;
 CREATE POLICY "owner insert" ON ai_conversations FOR INSERT WITH CHECK (created_by = app_uid());
@@ -114,32 +149,32 @@ CREATE POLICY "owner delete" ON ai_conversations FOR DELETE USING (created_by = 
 -- after the fact (a shared session must stay faithful to what was actually said).
 DROP POLICY IF EXISTS "read via convo" ON ai_conversation_messages;
 CREATE POLICY "read via convo" ON ai_conversation_messages FOR SELECT
-  USING (conversation_id IN (SELECT id FROM ai_conversations));
+  USING (ai_convo_readable(conversation_id));
 DROP POLICY IF EXISTS "edit insert"    ON ai_conversation_messages;
 CREATE POLICY "edit insert" ON ai_conversation_messages FOR INSERT
   WITH CHECK (ai_convo_editable(conversation_id));
 DROP POLICY IF EXISTS "owner delete"   ON ai_conversation_messages;
 CREATE POLICY "owner delete" ON ai_conversation_messages FOR DELETE USING (
-  conversation_id IN (SELECT id FROM ai_conversations WHERE created_by = app_uid())
+  conversation_id IN (SELECT my_owned_convo_ids())
 );
 
 -- shares: a user sees their own grant; the owner sees + manages all.
 DROP POLICY IF EXISTS "read shares"  ON ai_conversation_shares;
 CREATE POLICY "read shares" ON ai_conversation_shares FOR SELECT USING (
   user_id = app_uid()
-  OR conversation_id IN (SELECT id FROM ai_conversations WHERE created_by = app_uid())
+  OR conversation_id IN (SELECT my_owned_convo_ids())
 );
 DROP POLICY IF EXISTS "owner insert" ON ai_conversation_shares;
 CREATE POLICY "owner insert" ON ai_conversation_shares FOR INSERT WITH CHECK (
-  conversation_id IN (SELECT id FROM ai_conversations WHERE created_by = app_uid())
+  conversation_id IN (SELECT my_owned_convo_ids())
 );
 DROP POLICY IF EXISTS "owner update" ON ai_conversation_shares;
 CREATE POLICY "owner update" ON ai_conversation_shares FOR UPDATE USING (
-  conversation_id IN (SELECT id FROM ai_conversations WHERE created_by = app_uid())
+  conversation_id IN (SELECT my_owned_convo_ids())
 );
 DROP POLICY IF EXISTS "owner delete" ON ai_conversation_shares;
 CREATE POLICY "owner delete" ON ai_conversation_shares FOR DELETE USING (
-  conversation_id IN (SELECT id FROM ai_conversations WHERE created_by = app_uid())
+  conversation_id IN (SELECT my_owned_convo_ids())
 );
 
 -- ---- 6. invite-by-email (email is client-hidden since 019) -------------------
