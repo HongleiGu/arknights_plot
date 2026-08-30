@@ -223,32 +223,18 @@ owner can rename, change visibility, or manage shares. `board_id` is the
 session to a board grants a collaborator no access they didn't already have.
 UI: `/ai` (list), `/ai/[id]` (replay + continue), save/share from the panel.
 
-**Bring-your-own key — `user_ai_keys`** (`035`, AP-21 revised): this project
-isn't commercial, so instead of reselling model access a reader can spend their
-own. The key is encrypted **in the app** (AES-256-GCM, `lib/ai/userKey.ts`)
-under `AI_KEY_SECRET` and only the ciphertext is stored — deliberately not
-pgcrypto, which would mean passing the secret as a SQL argument where it can
-surface in query logs. Postgres never sees the plaintext or the secret; losing
-`AI_KEY_SECRET` makes every stored key undecryptable, which is the intended
-failure mode (a database dump alone is inert). `key_hint` is the last 4 chars,
-so the UI can show *which* key is stored without decrypting it, and the
-plaintext is never returned to the browser again after saving — not even to its
-owner.
-
-Consequences: `ai_can_use()` treats a stored key as its own entitlement (a
-BYOK caller doesn't need the allowlist — that gate protects *our* budget), but
-`ai_access = 'block'` still wins, since blocking is moderation and must not be
-bypassable by supplying a key. The assistant route skips **both** budget caps
-for a BYOK caller and builds a per-request client via `llmWithKey()` — never
-cached, since a module-level cache would leak one user's credentials into
-another's request. Usage is still recorded to `ai_usage` so they can see their
-own spend. UI: `/settings`.
-
-`.env`: `AI_KEY_SECRET` (≥16 chars; absent → the feature reports itself
-unconfigured and everyone stays on the shared budgeted key).
-
-The earlier Stripe subscription design (`031`) was removed before it was ever
-applied — see git history if it's ever wanted back.
+**No bring-your-own key.** `035` added encrypted per-user API keys; `036`
+dropped them again. Two reasons, both worth remembering before re-adding it:
+the model is free, so there is no cost to shift onto users; and `AI_MODEL` is
+**global**, so a user supplying their own key got the same model as everyone
+else — BYOK bought only quota isolation, which is thin justification for
+holding other people's credentials. The risk was never the crypto (AES-256-GCM,
+secret in env only) but that a database dump plus a leaked `AI_KEY_SECRET`
+leaks keys that cost *users* money. Removed while the table was still empty and
+`AI_KEY_SECRET` had never been set anywhere, which is the only cheap moment to
+do it. `035` is kept in the repo because it was applied and a replay has to
+pass through it. If it comes back — e.g. to let users pick a stronger model —
+it needs **per-user model selection** too, or it buys nothing again.
 
 **Model choice** (`AI_MODEL`): `minimax/minimax-m3:free` — free, does tool
 calling, and is multimodal (text+image+video, 1M ctx), so one model covers both
@@ -263,9 +249,11 @@ would just charge a fraction of a cent. Paid fallbacks, cheapest first:
 Check `supported_parameters` contains `tools` before switching to anything: the
 agent loop is useless without it, and plenty of models on OpenRouter lack it.
 
-This is also why BYOK (`035`) still matters on a free model: it stops being
-about money and becomes about **quota** — each user's own key carries its own
-rate limit instead of everyone sharing one.
+The account is not on OpenRouter's free tier (`GET /api/v1/key` →
+`is_free_tier: false`), which is what raises the daily cap on `:free` models,
+and there are credits in reserve if that cap ever bites. The code default in
+`llm.ts` is the same free model — it must stay multimodal and tool-calling,
+since `read_board_image` sends an image to whatever it resolves to.
 
 **Reading board images** (`read_board_image`): `read_board` marks a node with
 `[附图]`; the tool fetches that node under the caller's RLS and makes a **sub-call**

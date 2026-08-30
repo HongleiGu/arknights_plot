@@ -13,7 +13,7 @@
 
 import type OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
-import { AI_MODEL, llm, llmWithKey } from '@/lib/ai/llm'
+import { AI_MODEL, llm } from '@/lib/ai/llm'
 import {
   searchEntities, listBoards, getBoard,
   createBoard, addMember, updateMember, deleteMember, addEdge, updateEdge,
@@ -406,9 +406,7 @@ export interface ToolResult {
   usage?: { prompt: number; completion: number; total: number; cost: number }
 }
 
-export async function runTool(
-  name: string, args: Record<string, unknown>, ownKey: string | null = null,
-): Promise<ToolResult> {
+export async function runTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   const supabase = await createClient()
   try {
     switch (name) {
@@ -471,7 +469,7 @@ export async function runTool(
         // A sub-call rather than injecting the image into the agent loop: tool
         // results are text-only, and this keeps one image out of every
         // subsequent step's context.
-        const client = ownKey ? llmWithKey(ownKey) : llm()
+        const client = llm()
         const params = {
           model: AI_MODEL,
           messages: [{

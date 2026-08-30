@@ -1,6 +1,5 @@
 import type OpenAI from 'openai'
-import { AI_MODEL, aiConfigured, llm, llmWithKey } from '@/lib/ai/llm'
-import { resolveCallerKey } from '@/app/actions/aikey'
+import { AI_MODEL, aiConfigured, llm } from '@/lib/ai/llm'
 import { TOOLS, runTool } from '@/lib/ai/tools'
 import { createClient } from '@/lib/supabase/server'
 
@@ -94,22 +93,15 @@ export async function POST(req: Request) {
   const { data: can, error: canErr } = await who.db.rpc('ai_can_use', { p_user: who.id })
   const allowed = canErr ? who.isAdmin : can === true
   if (!allowed) return new Response('forbidden', { status: 403 })
-  // BYOK (035): a caller with their own key spends their own credit, so they
-  // use it instead of the server's — and neither budget applies. The per-user
-  // cap and the global cap both exist to protect OUR spend.
-  const own = await resolveCallerKey()
-  if (!own && !aiConfigured()) {
-    return new Response('AI 未配置（缺少 OPENROUTER_API_KEY），或在 /settings 填入你自己的 API Key', { status: 503 })
+  if (!aiConfigured()) {
+    return new Response('AI 未配置（缺少 OPENROUTER_API_KEY）', { status: 503 })
   }
 
   // Budget gate — refuse before spending if the monthly cap is hit.
-  const { data: chk } = own ? { data: null } : await who.db.rpc('ai_budget_check', { p_user: who.id })
+  const { data: chk } = await who.db.rpc('ai_budget_check', { p_user: who.id })
   const b = (Array.isArray(chk) ? chk[0] : chk) as { allowed: boolean; reason: string } | null
   if (b && b.allowed === false) {
-    // With BYOK the way past a personal cap is your own key, not an upgrade.
-    const msg = b.reason === 'user_limit'
-      ? '你的 AI 用量已达本月上限（可在 /settings 填入自己的 API Key 后不受此限）'
-      : 'AI 本月预算已用尽'
+    const msg = b.reason === 'user_limit' ? '你的 AI 用量已达本月上限' : 'AI 本月预算已用尽'
     return new Response(JSON.stringify({ error: 'budget', reason: b.reason, message: msg }), {
       status: 402, headers: { 'Content-Type': 'application/json' },
     })
@@ -143,9 +135,7 @@ export async function POST(req: Request) {
     async start(controller) {
       const emit = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'))
       try {
-        const r = await runAgent(convo, emit, maxSteps, seedNotes, boardId, own?.key ?? null)
-        // Recorded either way: a BYOK caller isn't billed against our caps, but
-        // they still get to see their own usage in the ledger.
+        const r = await runAgent(convo, emit, maxSteps, seedNotes, boardId)
         await recordUsage(who.db, who.id, r.usage)
         emit({ type: 'done', usage: r.usage, truncated: r.truncated, scratchpad: r.scratchpad })
       } catch (e) {
@@ -182,9 +172,9 @@ async function recordUsage(db: Db, userId: number, u: Usage): Promise<void> {
 
 async function runAgent(
   convo: ChatMsg[], emit: (o: unknown) => void, maxSteps: number, seedNotes: string[] = [],
-  boardId: number | null = null, ownKey: string | null = null,
+  boardId: number | null = null,
 ): Promise<{ usage: Usage; truncated: boolean; scratchpad: string[] }> {
-  const client = ownKey ? llmWithKey(ownKey) : llm()
+  const client = llm()
   const scratchpad: string[] = [...seedNotes]
   const working: ChatMsg[] = []   // this answer's assistant/tool exchange
   const usage: Usage = { prompt: 0, completion: 0, total: 0, cached: 0, cost: 0 }
@@ -284,7 +274,7 @@ async function runAgent(
         forModel = '已记录到便签'
         summary = text ? (text.length > 40 ? text.slice(0, 40) + '…' : text) : '（空）'
       } else {
-        const res = await runTool(c.name, args, ownKey)
+        const res = await runTool(c.name, args)
         forModel = res.forModel
         summary = res.summary
         // A tool that calls the model itself (read_board_image) reports its own
