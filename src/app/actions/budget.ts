@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 
-/** Who may use the assistant. 'subscriber' arrives with billing (AP-21). */
-export type AccessMode = 'admin' | 'allowlist' | 'subscriber' | 'all'
+/** Who may use the assistant. */
+export type AccessMode = 'admin' | 'allowlist' | 'all'
 
 export interface BudgetConfig {
   pricing_mode: 'openrouter' | 'custom'

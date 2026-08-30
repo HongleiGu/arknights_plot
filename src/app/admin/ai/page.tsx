@@ -4,8 +4,6 @@ import BudgetForm from './BudgetForm'
 import AccessPanel from './AccessPanel'
 import SummariesPanel from './SummariesPanel'
 import RelationsPanel from './RelationsPanel'
-import PlansPanel from './PlansPanel'
-import { billingConfigured, listPlansAdmin } from '@/app/actions/billing'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,8 +15,6 @@ export default async function AiBudgetPage() {
   const o = await getBudgetOverview()
   if (!o) redirect('/') // non-admin
   const access = await listAiAccess()
-  const plans = await listPlansAdmin()
-  const stripeOn = await billingConfigured()
 
   const activeSpend = o.config.pricing_mode === 'custom' ? o.month_custom : o.month_openrouter
   const limit = o.config.monthly_limit_usd
@@ -57,7 +53,6 @@ export default async function AiBudgetPage() {
       <AccessPanel initial={access} />
       <SummariesPanel />
       <RelationsPanel />
-      <PlansPanel initial={plans} configured={stripeOn} />
     </div>
   )
 }

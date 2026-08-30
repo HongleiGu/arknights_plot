@@ -1,11 +1,22 @@
-// AI assistant tool registry (AP-15). Read-only tools over the plot data + clue
-// boards, executed through the caller's authed Supabase client so RLS applies
-// (no service-role bypass). Board card text is USER-AUTHORED — the system
-// prompt treats tool output as untrusted data, never instructions.
+// AI assistant tool registry (AP-15). Tools over the plot data + clue boards,
+// executed through the caller's authed Supabase client so RLS applies (no
+// service-role bypass). Board card text is USER-AUTHORED — the system prompt
+// treats tool output as untrusted data, never instructions.
+//
+// Most tools read. The board-writing ones (create_board / add_board_node /
+// update_board_node / delete_board_node / link_board_nodes) go through the same
+// server actions the editor uses, so 033's RLS decides what the agent may
+// touch: it can only edit boards the CALLER could already edit. That containment
+// matters more now than it did when everything was read-only — board text is
+// user-authored and could try to talk the agent into editing something, and the
+// answer is that the database refuses, not that the prompt held.
 
 import type OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
-import { searchEntities, listBoards, getBoard } from '@/app/actions/boards'
+import {
+  searchEntities, listBoards, getBoard,
+  createBoard, addMember, updateMember, deleteMember, addEdge, updateEdge,
+} from '@/app/actions/boards'
 
 type Db = Awaited<ReturnType<typeof createClient>>
 
@@ -73,6 +84,83 @@ export const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         type: 'object',
         properties: { board_id: { type: 'integer' } },
         required: ['board_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_board',
+      description: '新建一个线索板（仅在用户明确要求时使用）。返回新板的 id。',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: '板标题' },
+          description: { type: 'string', description: '可选说明' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_board_node',
+      description: '在线索板上新增一个节点（仅在用户明确要求时使用）。节点 = 文本；把依据写成 @type/id 引用放进 body（如「凯尔希早已知情 @node/68725」），这些引用会渲染成可悬停的来源芯片，并计入回链。没有引用的节点会被标记为「未接地的推测」，所以能给依据就给。',
+      parameters: {
+        type: 'object',
+        properties: {
+          board_id: { type: 'integer' },
+          title: { type: 'string', description: '可选标题' },
+          body: { type: 'string', description: '正文，可含 @type/id 引用' },
+        },
+        required: ['board_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_board_node',
+      description: '修改某个线索板节点的标题/正文（仅在用户明确要求时使用）。会整体替换，不是追加——要保留原内容请先 read_board 取回再合并。',
+      parameters: {
+        type: 'object',
+        properties: {
+          member_id: { type: 'integer' },
+          title: { type: 'string' },
+          body: { type: 'string' },
+        },
+        required: ['member_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_board_node',
+      description: '删除一个线索板节点（仅在用户明确要求时使用）。连带删除它的连线，不可撤销。',
+      parameters: {
+        type: 'object',
+        properties: { member_id: { type: 'integer' } },
+        required: ['member_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'link_board_nodes',
+      description: '在两个节点间连线，表达论证关系（仅在用户明确要求时使用）。kind：supports 支持 / contradicts 反驳 / causes 导致 / precedes 先于 / answers 解答 / relates 关联。',
+      parameters: {
+        type: 'object',
+        properties: {
+          board_id: { type: 'integer' },
+          from_member: { type: 'integer' },
+          to_member: { type: 'integer' },
+          kind: { type: 'string', enum: ['supports', 'contradicts', 'causes', 'precedes', 'answers', 'relates'] },
+          label: { type: 'string', description: '可选备注' },
+        },
+        required: ['board_id', 'from_member', 'to_member', 'kind'],
       },
     },
   },
@@ -346,6 +434,54 @@ export async function runTool(name: string, args: Record<string, unknown>): Prom
         return {
           forModel: `线索板「${board.title}」board/${board.id}\n${board.description ?? ''}\n\n节点：\n${nodes}\n\n连线：\n${edges}`,
           summary: `board/${board.id}「${board.title}」`,
+        }
+      }
+      // ---- board writes (RLS-gated: only boards the CALLER can edit) ----
+      case 'create_board': {
+        const res = await createBoard(String(args.title ?? ''), args.description ? String(args.description) : undefined)
+        if (!res.ok) return { forModel: `新建失败：${res.error}`, summary: res.error }
+        return { forModel: `已新建线索板 board/${res.id}`, summary: `board/${res.id} 已创建` }
+      }
+      case 'add_board_node': {
+        const res = await addMember(Number(args.board_id), {
+          title: args.title ? String(args.title) : undefined,
+          body: args.body ? String(args.body) : undefined,
+        })
+        if (!res.ok) return { forModel: `添加失败：${res.error}（可能无编辑权限）`, summary: res.error }
+        const cites = res.member.refs.length
+        return {
+          forModel: `已添加节点 member/${res.member.id}，解析到 ${cites} 处引用` +
+            (cites === 0 ? '（无引用——该节点会显示为未接地的推测）' : ''),
+          summary: `节点 #${res.member.id} · ${cites} 引用`,
+        }
+      }
+      case 'update_board_node': {
+        const patch: { title?: string | null; body?: string } = {}
+        if (args.title !== undefined) patch.title = String(args.title) || null
+        if (args.body !== undefined) patch.body = String(args.body)
+        const res = await updateMember(Number(args.member_id), patch)
+        if (!res.ok) return { forModel: '修改失败（可能无编辑权限）', summary: '修改失败' }
+        return {
+          forModel: `已更新 member/${args.member_id}` + (res.refs ? `，现有 ${res.refs.length} 处引用` : ''),
+          summary: `节点 #${args.member_id} 已更新`,
+        }
+      }
+      case 'delete_board_node': {
+        const res = await deleteMember(Number(args.member_id))
+        return res.ok
+          ? { forModel: `已删除 member/${args.member_id}`, summary: `节点 #${args.member_id} 已删除` }
+          : { forModel: '删除失败（可能无编辑权限）', summary: '删除失败' }
+      }
+      case 'link_board_nodes': {
+        const res = await addEdge(
+          Number(args.board_id), Number(args.from_member), Number(args.to_member),
+          String(args.kind ?? 'relates'),
+        )
+        if (!res.ok) return { forModel: `连线失败：${res.error}`, summary: res.error }
+        if (args.label) await updateEdge(res.edge.id, { label: String(args.label) })
+        return {
+          forModel: `已连线 member/${args.from_member} -[${args.kind}]-> member/${args.to_member}`,
+          summary: `连线 ${args.kind}`,
         }
       }
       case 'summary': {

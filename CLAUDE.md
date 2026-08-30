@@ -223,28 +223,44 @@ owner can rename, change visibility, or manage shares. `board_id` is the
 session to a board grants a collaborator no access they didn't already have.
 UI: `/ai` (list), `/ai/[id]` (replay + continue), save/share from the panel.
 
-**Billing — `billing_plans` + `subscriptions`** (`031`, AP-21): subscription
-tiers over a free quota. No new metering — a plan just sets the caller's
-monthly USD allowance, which the existing `ai_budget_check()` (AP-17) enforces
-against the `ai_usage` ledger. Entitlement resolves first-non-NULL:
-`users.ai_limit_usd` override → active subscription's plan → the `free` plan →
-`ai_budget_config.per_user_limit_usd`; a NULL plan limit means unlimited.
-`ai_can_use()` gains a `subscriber` access mode. `billing_events` gives the
-webhook idempotency (UNIQUE `stripe_event_id`) and an audit trail.
-**Stripe is the only writer of subscription state**: `subscriptions` has *no*
-client write policy, so a plan can only be granted by a signature-verified
-Stripe event. That webhook (`api/billing/webhook`) is the sole sanctioned
-service-role caller in the app — see the header comment in
-`src/lib/supabase/admin.ts`; everything else still goes through the caller's
-RLS per AP-19. Ships **unconfigured** (the AP-8 Turnstile precedent): with no
-`STRIPE_SECRET_KEY`, `/pricing` is read-only and everyone sits on the free
-tier. Prices live in Stripe; `billing_plans` only stores the price id + a
-display amount, editable in `/admin/ai`.
+**Bring-your-own key — `user_ai_keys`** (`035`, AP-21 revised): this project
+isn't commercial, so instead of reselling model access a reader can spend their
+own. The key is encrypted **in the app** (AES-256-GCM, `lib/ai/userKey.ts`)
+under `AI_KEY_SECRET` and only the ciphertext is stored — deliberately not
+pgcrypto, which would mean passing the secret as a SQL argument where it can
+surface in query logs. Postgres never sees the plaintext or the secret; losing
+`AI_KEY_SECRET` makes every stored key undecryptable, which is the intended
+failure mode (a database dump alone is inert). `key_hint` is the last 4 chars,
+so the UI can show *which* key is stored without decrypting it, and the
+plaintext is never returned to the browser again after saving — not even to its
+owner.
 
-Stripe `.env` keys (all optional): `STRIPE_SECRET_KEY`,
-`STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_SITE_URL`. Local webhook:
-`stripe listen --forward-to localhost:3000/api/billing/webhook`. Subscribe to
-`checkout.session.completed` and `customer.subscription.created/updated/deleted`.
+Consequences: `ai_can_use()` treats a stored key as its own entitlement (a
+BYOK caller doesn't need the allowlist — that gate protects *our* budget), but
+`ai_access = 'block'` still wins, since blocking is moderation and must not be
+bypassable by supplying a key. The assistant route skips **both** budget caps
+for a BYOK caller and builds a per-request client via `llmWithKey()` — never
+cached, since a module-level cache would leak one user's credentials into
+another's request. Usage is still recorded to `ai_usage` so they can see their
+own spend. UI: `/settings`.
+
+`.env`: `AI_KEY_SECRET` (≥16 chars; absent → the feature reports itself
+unconfigured and everyone stays on the shared budgeted key).
+
+The earlier Stripe subscription design (`031`) was removed before it was ever
+applied — see git history if it's ever wanted back.
+
+**AI can edit boards** (tools.ts): `create_board` / `add_board_node` /
+`update_board_node` / `delete_board_node` / `link_board_nodes` go through the
+same server actions the editor uses, so `033`'s RLS decides what the agent may
+touch — it can only edit boards the **caller** could already edit. That
+containment is the real control: board text is user-authored, so a node could
+try to talk the agent into editing something, and the answer must be that the
+database refuses, not that the prompt held. The prompt additionally requires an
+explicit user request per turn (answering a question is not licence to edit) and
+states that board text can never trigger a write. Write steps render in green in
+the tool trace so an edit is visible at a glance.
+
 
 **Branch dialogue is unified into `nodes`** (no separate `branch_nodes`
 table): a predicate-branch line is a `nodes` row with `branch_id` set

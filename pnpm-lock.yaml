@@ -47,9 +47,6 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
-      stripe:
-        specifier: ^22.6.0
-        version: 22.6.0(@types/node@20.19.37)
     devDependencies:
       '@tailwindcss/postcss':
         specifier: ^4
@@ -2420,15 +2417,6 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==, tarball: https://registry.npmmirror.com/strip-json-comments/-/strip-json-comments-3.1.1.tgz}
     engines: {node: '>=8'}
-
-  stripe@22.6.0:
-    resolution: {integrity: sha512-Ezk+WYEEwX2DLxFrKfb6coznlCMZvCaCYMNPXNHFSZkBIEzF5Hgm7RLb38q/0h9Ol5jsUJGJRorvhzAvckgfhw==, tarball: https://registry.npmmirror.com/stripe/-/stripe-22.6.0.tgz}
-    engines: {node: '>=18'}
-    peerDependencies:
-      '@types/node': '>=18'
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
 
   strnum@2.4.0:
     resolution: {integrity: sha512-sHrVyWWdq28RbhjuJdZsA1SnGRJV6NiXbk6AXBxDOsgAcA+lmpUZCYjOdLBxkXMwis6RRe7dlZt4VlIWFVzkmg==, tarball: https://registry.npmmirror.com/strnum/-/strnum-2.4.0.tgz}
@@ -5559,10 +5547,6 @@ snapshots:
   strip-bom@3.0.0: {}
 
   strip-json-comments@3.1.1: {}
-
-  stripe@22.6.0(@types/node@20.19.37):
-    optionalDependencies:
-      '@types/node': 20.19.37
 
   strnum@2.4.0:
     dependencies:

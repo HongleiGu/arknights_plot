@@ -14,7 +14,6 @@ function numOrNull(s: string): number | null {
 const ACCESS_OPTS: { value: AccessMode; label: string; hint: string }[] = [
   { value: 'admin',      label: '仅管理员',   hint: '只有管理员可用（默认）' },
   { value: 'allowlist',  label: '白名单',     hint: '管理员+被授权的用户可用' },
-  { value: 'subscriber', label: '付费订阅者', hint: '管理员+被授权用户+持有生效付费订阅的用户（AP-21）' },
   { value: 'all',        label: '所有登录用户', hint: '任何登录用户都可用（靠预算/封禁控制）' },
 ]
 

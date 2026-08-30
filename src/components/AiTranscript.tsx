@@ -41,7 +41,17 @@ const TOOL_LABEL: Record<string, string> = {
   list_boards: 'LIST_BOARDS', read_board: 'READ_BOARD',
   summary: 'SUMMARY', note: 'NOTE', recall: 'RECALL', memorize: 'MEMORIZE',
   search_entity: 'FIND_ENTITY', entity_graph: 'GRAPH', relate: 'RELATE',
+  create_board: 'NEW_BOARD', add_board_node: 'ADD_NODE',
+  update_board_node: 'EDIT_NODE', delete_board_node: 'DEL_NODE',
+  link_board_nodes: 'LINK',
 }
+
+// Tools that change data. Rendered in a warmer colour so a write is visible in
+// the trace at a glance rather than blending into the retrieval steps.
+const WRITE_TOOLS = new Set([
+  'create_board', 'add_board_node', 'update_board_node', 'delete_board_node',
+  'link_board_nodes', 'memorize',
+])
 
 function argsPreview(args: Record<string, unknown>): string {
   return Object.entries(args).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(', ')
@@ -73,9 +83,10 @@ export function toTurnInputs(turns: Turn[]): TurnInput[] {
 }
 
 export function ToolTrace({ part }: { part: ToolPart }) {
+  const write = WRITE_TOOLS.has(part.name)
   return (
-    <div className="text-[11px] pl-2 border-l border-ark-border/70">
-      <div className="flex items-center gap-1.5 text-ark-accent/90">
+    <div className={`text-[11px] pl-2 border-l ${write ? 'border-ark-success/70' : 'border-ark-border/70'}`}>
+      <div className={`flex items-center gap-1.5 ${write ? 'text-ark-success' : 'text-ark-accent/90'}`}>
         {part.status === 'running' ? <Spinner /> : <span className="text-ark-success">▸</span>}
         <span className="tracking-widest">{TOOL_LABEL[part.name] ?? part.name.toUpperCase()}</span>
         <span className="text-ark-muted truncate">{argsPreview(part.args)}</span>

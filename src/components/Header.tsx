@@ -94,13 +94,15 @@ export default async function Header() {
               {'// AI 会话'}
             </Link>
           )}
-          <Link
-            href="/pricing"
-            className="hidden md:inline tracking-widest uppercase text-ark-muted
-                       hover:text-ark-accent transition-colors duration-200"
-          >
-            {'// 订阅'}
-          </Link>
+          {user && (
+            <Link
+              href="/settings"
+              className="hidden md:inline tracking-widest uppercase text-ark-muted
+                         hover:text-ark-accent transition-colors duration-200"
+            >
+              {'// 设置'}
+            </Link>
+          )}
           {isAdmin && (
             <Link
               href="/admin/ai"
