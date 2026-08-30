@@ -41,6 +41,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_boards: 'LIST_BOARDS', read_board: 'READ_BOARD',
   summary: 'SUMMARY', note: 'NOTE', recall: 'RECALL', memorize: 'MEMORIZE',
   search_entity: 'FIND_ENTITY', entity_graph: 'GRAPH', relate: 'RELATE',
+  read_board_image: 'VIEW_IMAGE',
   create_board: 'NEW_BOARD', add_board_node: 'ADD_NODE',
   update_board_node: 'EDIT_NODE', delete_board_node: 'DEL_NODE',
   link_board_nodes: 'LINK',

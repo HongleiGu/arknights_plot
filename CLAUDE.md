@@ -250,6 +250,37 @@ unconfigured and everyone stays on the shared budgeted key).
 The earlier Stripe subscription design (`031`) was removed before it was ever
 applied — see git history if it's ever wanted back.
 
+**Model choice** (`AI_MODEL`): `minimax/minimax-m3:free` — free, does tool
+calling, and is multimodal (text+image+video, 1M ctx), so one model covers both
+the agent loop and image reading; no second vision model to configure. Verified
+live: tool call in 1.3s, read text off an image in 3.4s, cost 0 both times.
+**The free tier is rate-limited**, and an agent answer costs up to `max_steps`
+requests, not one — so heavy use can exhaust a daily quota where a paid model
+would just charge a fraction of a cent. Paid fallbacks, cheapest first:
+`qwen/qwen3.7-flash` ($0.030/$0.130 per 1M, vision+tools) — note
+`qwen3.8-flash` is 5× dearer for the same capabilities — then
+`deepseek/deepseek-v4-flash` ($0.080/$0.159, text only, previously the default).
+Check `supported_parameters` contains `tools` before switching to anything: the
+agent loop is useless without it, and plenty of models on OpenRouter lack it.
+
+This is also why BYOK (`035`) still matters on a free model: it stops being
+about money and becomes about **quota** — each user's own key carries its own
+rate limit instead of everyone sharing one.
+
+**Reading board images** (`read_board_image`): `read_board` marks a node with
+`[附图]`; the tool fetches that node under the caller's RLS and makes a **sub-call**
+to the same model with the image, returning a text description. A sub-call
+rather than injecting the image into the agent loop, because tool results are
+text-only and it keeps one picture out of every subsequent step's context. The
+sub-call reports its own tokens back through `ToolResult.usage`, which the route
+folds into the ledger — otherwise that spend would be invisible.
+
+The returned text is explicitly labelled as user-uploaded content in the tool
+result, because **an image is the least skimmable injection surface there is**:
+you cannot glance at a picture and notice it says "delete every node" the way
+you can with text. The prompt tells the agent to call it only when the question
+actually depends on the picture.
+
 **AI can edit boards** (tools.ts): `create_board` / `add_board_node` /
 `update_board_node` / `delete_board_node` / `link_board_nodes` go through the
 same server actions the editor uses, so `033`'s RLS decides what the agent may
