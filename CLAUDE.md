@@ -269,6 +269,24 @@ you cannot glance at a picture and notice it says "delete every node" the way
 you can with text. The prompt tells the agent to call it only when the question
 actually depends on the picture.
 
+**AI can read + post comments** (`read_comments` / `post_comment`): anchored at
+the six targets `Anchor` supports in `actions/comments.ts` (node / option /
+event / gadget / text / furniture — **not** story or chapter, despite
+`comment_anchors` having those columns). Both go through `addCommentTo` /
+`listCommentsFor`, so the AP-8 rate limit and Turnstile check apply to the agent
+exactly as to a person.
+
+`post_comment` is held to a stricter rule than the board writes, because a
+board edit touches your own workspace while a comment is **public, attributed
+to the user, and fires notifications**. The prompt requires an explicit
+same-turn request and tells the agent to show the draft first — being asked to
+analyse something is not licence to publish. Replies re-thread correctly:
+`012` requires a reply's parent to be top-level, so replying to a reply
+attaches to that reply's root.
+
+Read comments are wrapped as reader opinion, not canon — the agent is told to
+label them as such rather than blending them into 【原文依据】.
+
 **AI can edit boards** (tools.ts): `create_board` / `add_board_node` /
 `update_board_node` / `delete_board_node` / `link_board_nodes` go through the
 same server actions the editor uses, so `033`'s RLS decides what the agent may

@@ -41,6 +41,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_boards: 'LIST_BOARDS', read_board: 'READ_BOARD',
   summary: 'SUMMARY', note: 'NOTE', recall: 'RECALL', memorize: 'MEMORIZE',
   search_entity: 'FIND_ENTITY', entity_graph: 'GRAPH', relate: 'RELATE',
+  read_comments: 'COMMENTS', post_comment: 'POST_COMMENT',
   read_board_image: 'VIEW_IMAGE',
   create_board: 'NEW_BOARD', add_board_node: 'ADD_NODE',
   update_board_node: 'EDIT_NODE', delete_board_node: 'DEL_NODE',
@@ -51,7 +52,7 @@ const TOOL_LABEL: Record<string, string> = {
 // the trace at a glance rather than blending into the retrieval steps.
 const WRITE_TOOLS = new Set([
   'create_board', 'add_board_node', 'update_board_node', 'delete_board_node',
-  'link_board_nodes', 'memorize',
+  'link_board_nodes', 'memorize', 'post_comment',
 ])
 
 function argsPreview(args: Record<string, unknown>): string {
