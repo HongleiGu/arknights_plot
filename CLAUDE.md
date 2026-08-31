@@ -21,12 +21,42 @@ without losing `users` / `comments`:
 
 ## Run the pipeline
 
+**Python scripts run in the conda env `study`** — that's where `supabase`,
+`python-dotenv` and `requests` live. `run_pipeline.py` spawns each step with
+`sys.executable`, so launching it under `study` propagates to every step:
+
 ```bash
-python scripts/run_pipeline.py             # fast, additive (idempotent)
-python scripts/run_pipeline.py --force     # wipe data/plots/ + re-scrape + re-import
-python scripts/run_pipeline.py --only wiki,upload   # subset
-python scripts/run_pipeline.py --only sgad,gadgets  # scrape + import IS gadgets
+conda run -n study python scripts/run_pipeline.py --sync   # pull in new wiki content
+conda run -n study python scripts/run_pipeline.py          # import local files only
+conda run -n study python scripts/run_pipeline.py --force  # DESTRUCTIVE full rebuild
+conda run -n study python scripts/run_pipeline.py --only wiki,upload
 ```
+
+**`--sync` is the update path** — run it whenever a new event/story/operator
+ships. It runs every step with no `--force` and wipes nothing, so only the
+delta is fetched. It works because each scraper already carries its own
+idempotency marker and re-reads the wiki index every run, so new entries appear
+by themselves:
+
+| step | discovers from | skips |
+|---|---|---|
+| `scrape_plots.py` | `Template:剧情导航` (what 剧情一览 renders) | `.txt` already on disk |
+| `scrape_operator_profile.py` | `Category:干员`, paginated | operators already in `operator_profiles.json` |
+| `scrape_operator_milv.py` | same category | operators whose `.txt` exist |
+| `scrape_gadgets.py` / `scrape_events.py` | each theme's wiki page | themes already in their JSON |
+| `parse_plots.py` | local `.txt` | chapters already in the DB |
+| `seed_entities.py` | `nodes.speaker` | upsert on `(type, name)` |
+
+So there is no separate "check what's new" scraper, and shouldn't be — adding
+one would duplicate discovery logic that already re-reads the index each run.
+
+`--sync` and `--force` are mutually exclusive: `--sync` updates in place,
+`--force` rebuilds from nothing (and wipes `data/plots/` first). A bare run is
+import-only — no network — which is what you want after a schema change.
+
+Not pipeline steps: AI summaries (AP-23) and relation extraction (AP-22 P2)
+are admin actions in `/admin/ai`; run them separately for newly imported
+content. `--sync` prints a reminder.
 
 **Prereqs**
 - `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`
