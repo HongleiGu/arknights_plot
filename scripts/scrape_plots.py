@@ -106,20 +106,51 @@ def parse_cell(raw: str) -> tuple[str, int, bool]:
 
 
 def split_logical_rows(wikitext: str) -> list[list[str]]:
-    """Blank lines and |- markers both act as row separators."""
+    """Rows of the wikitable(s). Blank lines and |- markers separate rows.
+
+    Only lines INSIDE a `{| … |}` table are yielded. The nav template closes
+    its last table and then repeats the entire catalogue as
+    `<div class="nomobile">{{Navbox …}}` — ~99 nested Navbox templates whose
+    lines also begin with `|` (`|list1=<li>[[隐藏剧情/剧情|…]]</li>…`). Without
+    the depth check those parse as data cells and their links get appended to
+    whichever section was last seen, so the final table row silently absorbs a
+    duplicate of the whole catalogue: 丛林症结 came out with 101 pages instead
+    of 7, including things like APF-2020 and NL-HD-1 that belong to 四月辑录
+    and 特殊.
+
+    The tell is duplication — every swept-up page also appears, correctly
+    attributed, somewhere else — which is easy to miss because the extra files
+    scrape fine and land in a plausible-looking folder.
+    """
     text = re.sub(r"^\s*\|-.*$", "", wikitext, flags=re.MULTILINE)
     rows: list[list[str]] = []
     current: list[str] = []
+    depth = 0
+
+    def flush() -> None:
+        nonlocal current
+        if current:
+            rows.append(current)
+            current = []
+
     for line in text.splitlines():
         s = line.strip()
+        if s.startswith("{|"):
+            depth += 1
+            flush()
+            continue
+        if s.startswith("|}"):
+            depth = max(0, depth - 1)
+            flush()
+            continue
+        if depth == 0:          # prose, the trailing Navbox div, anything else
+            flush()
+            continue
         if not s:
-            if current:
-                rows.append(current)
-                current = []
+            flush()
         else:
             current.append(s)
-    if current:
-        rows.append(current)
+    flush()
     return rows
 
 
