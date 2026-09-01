@@ -182,6 +182,43 @@ speaks — `python scripts/seed_entities.py` derives characters from distinct
 `narrator`/`？？？`). Later phases enrich (aliases/name_en/summary) and extract
 relations with citations. Public read, admin/service-role write.
 
+**Enemies + items — global catalogs** (`037`): `enemies` and `items` are the
+first per-shape tables that do **not** FK to `stories`. Everything else
+(gadgets/events/text_clusters/furniture) hangs off a story because it belongs
+to one theme or event; an enemy or an item belongs to the game — the same
+源石虫 appears in dozens of stories. So they are peers of `stories`, like
+`entities` (026). `UNIQUE(name)` on both makes the import an idempotent upsert.
+
+Sources differ, and both are structured rather than scraped HTML — neither
+index page has anything in its wikitext:
+- **items**: 道具一览 is `{{#cargo_query:}}` + a JS widget, but that query names
+  a **Cargo** table `item` with exactly the fields wanted (name, description,
+  purpose, obtain_method, rarity, iconId). `scrape_items.py` calls the Cargo
+  API directly — no parsing, nothing to re-break on a layout change.
+- **enemies**: 敌人一览 is a bare `{{#widget:EnemiesListV2}}` and there is **no**
+  Cargo table for enemies. `scrape_enemies.py` enumerates `Category:敌人`
+  (1783 pages, paginated — the `Category:干员` idiom) and parses each page's
+  `{{敌人信息/common2}}` infobox for 名称/描述/种类/地位级别/index, plus the
+  first `[[文件:…]]` as the asset. Level-by-level stat blocks are deliberately
+  skipped: this is a story archive, not a combat wiki, and nothing reads them.
+
+`import_catalog.py` loads both (`--only enemies|items`), `upload_catalog_icons.py`
+pushes icons to R2 under `enemy-icons/<sha1>.png` / `item-icons/<sha1>.png` —
+sha1 of the data/-relative path, the same convention as every other asset, so
+`enemyIconUrl` / `itemIconUrl` in `storage.ts` need no DB round trip. Pipeline
+aliases: `senemy`, `sitem` (network) and `catalog` (import).
+
+`037` also widens `comment_anchors` with `enemy_id` / `item_id` per the
+006/007/011/027 idiom, so an enemy can be commented on. Board citations need no
+schema at all — `correlation_member_refs` (033) is generic over `@word/digits`,
+so `@enemy/12` starts working as soon as `lib/references.ts` learns to resolve
+the type (not done yet).
+
+UI: `/enemies` and `/items` (search + filter, server-rendered with a plain
+`<form>` like `/world`, no client JS) and `/enemies/[id]` / `/items/[id]`.
+`components/CatalogList.tsx` is shared between them — the two catalogs differ
+only in data source and labels.
+
 **Clue board — one node type** (`033`): a board node is **text + an optional
 image**, nothing else. Evidence is not pinned as its own node; it's cited
 *inside* the node's text as `@type/id` tokens (the AP-2 idiom), rendered by

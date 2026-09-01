@@ -43,3 +43,15 @@ export function furnitureIconUrl(sha1: string | null | undefined): string | null
   if (!sha1) return null
   return `${R2}/furniture-icons/${sha1}.png`
 }
+
+/** enemies.icon_sha1 → public URL (enemy-icons/<sha1>.png). */
+export function enemyIconUrl(sha1: string | null | undefined): string | null {
+  if (!sha1) return null
+  return `${R2}/enemy-icons/${sha1}.png`
+}
+
+/** items.icon_sha1 → public URL (item-icons/<sha1>.png). */
+export function itemIconUrl(sha1: string | null | undefined): string | null {
+  if (!sha1) return null
+  return `${R2}/item-icons/${sha1}.png`
+}
