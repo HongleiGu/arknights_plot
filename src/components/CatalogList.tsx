@@ -18,6 +18,48 @@ export interface CatalogEntry {
   href: string
 }
 
+/**
+ * Icon, or a placeholder when there isn't one.
+ *
+ * ~2.5% of enemies genuinely have no portrait on the wiki — they're collection
+ * pages, disambiguation pages, or story props that were never drawn — so this
+ * is a permanent state, not a loading gap, and it shouldn't read as breakage.
+ * The rhomboid is the operator-class mark from the header, so an empty slot
+ * still looks like part of the HUD rather than a missing image.
+ */
+export function CatalogIcon({
+  url, alt, size = 48,
+}: {
+  url?: string | null
+  alt?: string
+  size?: number
+}) {
+  return (
+    <span
+      className="shrink-0 border border-ark-border/60 bg-ark-surface
+                 flex items-center justify-center overflow-hidden"
+      style={{ width: size, height: size }}
+      // Only announce the placeholder; a real icon is decorative next to its label.
+      title={url ? undefined : '暂无图像'}
+    >
+      {url ? (
+        <Image src={url} alt={alt ?? ''} width={size} height={size}
+               className="object-contain w-full h-full" />
+      ) : (
+        <span
+          className="block bg-ark-border/70"
+          style={{
+            width: Math.round(size * 0.3),
+            height: Math.round(size * 0.3),
+            clipPath: 'polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)',
+          }}
+          aria-hidden
+        />
+      )}
+    </span>
+  )
+}
+
 export function CatalogSearch({
   action, q, placeholder,
 }: {
@@ -89,14 +131,7 @@ export default function CatalogList({ entries }: { entries: CatalogEntry[] }) {
           >
             {/* Fixed box so a missing icon doesn't reflow the row. Images are
                 unoptimized (next.config) and served straight from R2. */}
-            <span className="shrink-0 w-12 h-12 border border-ark-border/60 bg-ark-surface
-                             flex items-center justify-center overflow-hidden">
-              {e.iconUrl ? (
-                <Image src={e.iconUrl} alt="" width={48} height={48} className="object-contain w-full h-full" />
-              ) : (
-                <span className="font-mono text-[9px] text-ark-border">N/A</span>
-              )}
-            </span>
+            <CatalogIcon url={e.iconUrl} size={48} />
             <span className="min-w-0">
               <span className="block text-sm text-ark-text truncate">{e.name}</span>
               {e.sub && (

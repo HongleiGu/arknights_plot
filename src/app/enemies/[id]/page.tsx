@@ -1,8 +1,8 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { enemyIconUrl } from '@/lib/storage'
+import { CatalogIcon } from '@/components/CatalogList'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,12 +30,7 @@ export default async function EnemyPage({ params }: { params: Promise<{ id: stri
       <div className="h-0.5 w-16 bg-ark-accent mb-8" />
 
       <div className="flex gap-5 items-start mb-8">
-        {icon && (
-          <span className="shrink-0 w-28 h-28 border border-ark-border bg-ark-surface
-                           flex items-center justify-center overflow-hidden">
-            <Image src={icon} alt={enemy.name} width={112} height={112} className="object-contain w-full h-full" />
-          </span>
-        )}
+        <CatalogIcon url={icon} alt={enemy.name} size={112} />
         <div className="min-w-0">
           <h1 className="text-2xl font-light tracking-widest text-ark-text">{enemy.name}</h1>
           <p className="font-mono text-[10px] text-ark-muted tracking-widest uppercase mt-1">

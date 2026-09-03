@@ -1,8 +1,8 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { itemIconUrl } from '@/lib/storage'
+import { CatalogIcon } from '@/components/CatalogList'
 
 export const dynamic = 'force-dynamic'
 
@@ -32,12 +32,7 @@ export default async function ItemPage({ params }: { params: Promise<{ id: strin
       <div className="h-0.5 w-16 bg-ark-accent mb-8" />
 
       <div className="flex gap-5 items-start mb-8">
-        {icon && (
-          <span className="shrink-0 w-24 h-24 border border-ark-border bg-ark-surface
-                           flex items-center justify-center overflow-hidden">
-            <Image src={icon} alt={item.name} width={96} height={96} className="object-contain w-full h-full" />
-          </span>
-        )}
+        <CatalogIcon url={icon} alt={item.name} size={96} />
         <div className="min-w-0">
           <h1 className="text-2xl font-light tracking-widest text-ark-text">{item.name}</h1>
           <p className="font-mono text-[10px] text-ark-muted tracking-widest uppercase mt-1">
