@@ -84,6 +84,71 @@ export function CatalogSearch({
   )
 }
 
+/**
+ * Page links. Server-rendered <Link>s, like the search form — the catalogs
+ * work with JS off, and this keeps that true.
+ *
+ * Necessary rather than nice-to-have: there are 1780 enemies and 1359 items,
+ * so a fixed 120-row cap showed 7% and 9% of them with no way to reach the
+ * rest.
+ *
+ * Windowed to keep the row short at 15 pages, always including first/last so
+ * the ends are one click away.
+ */
+export function CatalogPager({
+  base, page, pageSize, total, params = {},
+}: {
+  base: string
+  page: number
+  pageSize: number
+  total: number
+  params?: Record<string, string | undefined>
+}) {
+  const pages = Math.ceil(total / pageSize)
+  if (pages <= 1) return null
+
+  const href = (p: number) => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v) q.set(k, v)
+    if (p > 1) q.set('page', String(p))
+    const s = q.toString()
+    return s ? `${base}?${s}` : base
+  }
+
+  const span = 2
+  const nums = new Set<number>([1, pages])
+  for (let p = page - span; p <= page + span; p++) if (p >= 1 && p <= pages) nums.add(p)
+  const ordered = [...nums].sort((a, b) => a - b)
+
+  const from = (page - 1) * pageSize + 1
+  const to = Math.min(page * pageSize, total)
+
+  return (
+    <nav className="mt-8 font-mono text-[10px] tracking-widest uppercase" aria-label="分页">
+      <p className="text-ark-border mb-2">{'//'} {from}–{to} / {total}</p>
+      <div className="flex gap-x-2 gap-y-1.5 flex-wrap items-center">
+        {page > 1 && (
+          <Link href={href(page - 1)} className="text-ark-muted hover:text-ark-accent">← 上一页</Link>
+        )}
+        {ordered.map((p, i) => (
+          <span key={p} className="flex items-center gap-2">
+            {/* a gap in the sequence means pages were skipped */}
+            {i > 0 && p - ordered[i - 1] > 1 && <span className="text-ark-border">…</span>}
+            {p === page ? (
+              <span className="text-ark-accent" aria-current="page">{p}</span>
+            ) : (
+              <Link href={href(p)} className="text-ark-muted hover:text-ark-accent">{p}</Link>
+            )}
+          </span>
+        ))}
+        {page < pages && (
+          <Link href={href(page + 1)} className="text-ark-muted hover:text-ark-accent">下一页 →</Link>
+        )}
+      </div>
+    </nav>
+  )
+}
+
 export function CatalogFilters({
   base, current, values, labels = {}, param = 'kind',
 }: {

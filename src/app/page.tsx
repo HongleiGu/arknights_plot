@@ -1,6 +1,10 @@
 import Link from 'next/link'
 
-const CATEGORIES = [
+// `href` overrides the default `/<id>` category route — the catalogs that
+// aren't a stories.category live on their own paths.
+const CATEGORIES: {
+  id: string; latin: string; name: string; desc: string; href?: string
+}[] = [
   { id: '主线',     latin: 'MAIN STORY',     name: '主线剧情', desc: '罗德岛主线故事' },
   { id: '支线',     latin: 'SIDE STORY',     name: '支线剧情', desc: '干员与势力的外传故事' },
   { id: '故事集',   latin: 'STORY SET',      name: '故事集',   desc: '活动与特别故事' },
@@ -9,6 +13,8 @@ const CATEGORIES = [
   { id: '特殊',     latin: 'SPECIAL',        name: '特殊剧情', desc: '隐藏与特殊内容' },
   { id: '干员',     latin: 'OPERATOR',       name: '干员密录', desc: '干员个人故事档案' },
   { id: '家具',     latin: 'FURNITURE',      name: '家具图鉴', desc: '基建家具与装饰主题' },
+  { id: '敌人',     latin: 'ENEMY',          name: '敌人图鉴', desc: '敌方单位与描述', href: '/enemies' },
+  { id: '道具',     latin: 'ITEM',           name: '道具图鉴', desc: '材料、信物与凭证', href: '/items' },
 ]
 
 export default function HomePage() {
@@ -50,7 +56,7 @@ export default function HomePage() {
           {CATEGORIES.map((cat, i) => (
             <Link
               key={cat.id}
-              href={`/${encodeURIComponent(cat.id)}`}
+              href={cat.href ?? `/${encodeURIComponent(cat.id)}`}
               className="group relative flex flex-col justify-between p-8 bg-ark-bg
                          hover:bg-ark-surface transition-colors duration-300 overflow-hidden min-h-40"
             >

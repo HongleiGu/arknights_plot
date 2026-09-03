@@ -79,20 +79,6 @@ export default async function Header() {
             {'// 世界'}
           </Link>
           <Link
-            href="/enemies"
-            className="hidden lg:inline tracking-widest uppercase text-ark-muted
-                       hover:text-ark-accent transition-colors duration-200"
-          >
-            {'// 敌人'}
-          </Link>
-          <Link
-            href="/items"
-            className="hidden lg:inline tracking-widest uppercase text-ark-muted
-                       hover:text-ark-accent transition-colors duration-200"
-          >
-            {'// 道具'}
-          </Link>
-          <Link
             href="/boards"
             className="hidden sm:inline tracking-widest uppercase text-ark-muted
                        hover:text-ark-accent transition-colors duration-200"
