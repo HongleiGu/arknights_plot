@@ -12,7 +12,7 @@ Per page we want only what the catalog needs:
     种类   → kind           ditto (感染生物 / 萨卡兹 / …)
     地位级别 → rank          ditto (普通 / 精英 / BOSS)
     index  → code           ditto (B1 …), the wiki's own ordering key
-    [[文件:….png]]          → the thumbnail, downloaded as the asset
+    头像 敌人 <名称>.png     → the portrait icon (see icon_candidates)
 
 Level-by-level stat blocks ({{敌人信息/levelcontent}}) are deliberately NOT
 parsed — this is a story archive, not a combat wiki, and those tables are large,
@@ -124,10 +124,32 @@ def parse_infobox(wt: str) -> dict:
     return fields
 
 
-def image_filename(wt: str) -> str | None:
-    """First [[文件:….png|…]] on the page — the enemy's artwork."""
-    m = re.search(r"\[\[文件:([^|\]]+\.(?:png|jpg|jpeg))", wt, re.I)
-    return m.group(1).strip() if m else None
+def icon_candidates(title: str, box: dict, wt: str) -> list[str]:
+    """Filenames to try for this enemy's icon, best first.
+
+    The portrait is `头像 敌人 <name>.png` and is NOT linked from the page —
+    it has to be constructed. Measured at ~95% coverage over a sample of
+    Category:敌人; the misses are odd names (curly quotes) and NPCs with no
+    portrait at all.
+
+    Both the infobox 名称 and the page title are tried, since they can differ.
+
+    Last resort is the first image actually on the page that is NOT `Avg…` —
+    those are AVG story CGs, not icons, and taking them was the original bug:
+    源石虫's only [[文件:]] is `Avg avg npc 1431 1$1.png`, a full CG.
+    """
+    cands: list[str] = []
+    for n in ((box.get("名称") or "").strip(), title.strip()):
+        if n:
+            f = f"头像 敌人 {n}.png"
+            if f not in cands:
+                cands.append(f)
+    for m in re.finditer(r"\[\[文件:([^|\]]+\.(?:png|jpg|jpeg))", wt, re.I):
+        fn = m.group(1).strip()
+        if not fn.lower().startswith("avg") and fn not in cands:
+            cands.append(fn)
+            break
+    return cands
 
 
 def icon_url(filename: str) -> str | None:
@@ -145,23 +167,40 @@ def safe(name: str) -> str:
     return re.sub(r'[:*?"<>|/\\]', "_", name).strip()
 
 
-def download_icon(filename: str) -> str | None:
-    dst = ICON_DIR / safe(filename)
-    rel = dst.relative_to(DATA)
-    if dst.exists():
-        return sha1_for(rel)
-    url = icon_url(filename)
-    if not url:
-        return None
-    try:
-        r = requests.get(url, timeout=TIMEOUT)
-        r.raise_for_status()
-    except Exception as e:                            # noqa: BLE001
-        log.warning(f"  icon download failed for {filename}: {type(e).__name__}")
-        return None
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(r.content)
-    return sha1_for(rel)
+def download_icon(candidates: list[str]) -> str | None:
+    """First candidate that exists on the wiki, downloaded. Returns icon_sha1.
+
+    Checks the local cache before asking the API, so a resumed run costs no
+    requests for enemies already fetched.
+    """
+    for filename in candidates:
+        dst = ICON_DIR / safe(filename)
+        if dst.exists():
+            return sha1_for(dst.relative_to(DATA))
+    for filename in candidates:
+        url = icon_url(filename)
+        if not url:
+            continue
+        # Retry the image fetch itself: icon_url() goes through api() and so is
+        # already retried, but the media host times out on its own and a single
+        # ConnectTimeout would otherwise silently cost this enemy its icon.
+        r = None
+        for attempt in range(3):
+            try:
+                r = requests.get(url, timeout=TIMEOUT)
+                r.raise_for_status()
+                break
+            except Exception as e:                    # noqa: BLE001
+                log.warning(f"  icon fetch retry {attempt+1}/3 for {filename} ({type(e).__name__})")
+                r = None
+                time.sleep(2.0 * (attempt + 1))
+        if r is None:
+            continue
+        dst = ICON_DIR / safe(filename)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(r.content)
+        return sha1_for(dst.relative_to(DATA))
+    return None
 
 
 def main() -> None:
@@ -188,7 +227,17 @@ def main() -> None:
     new = failed = icons = 0
     for i, title in enumerate(titles, 1):
         if title in existing and not args.force:
-            out.append(existing[title])
+            prev = existing[title]
+            # Self-healing resume: a transient timeout leaves icon_sha1 null,
+            # and without this the record would be skipped forever and that
+            # enemy would silently never get an icon. Retrying is cheap — the
+            # local cache is checked before any request.
+            if prev.get("icon_sha1") is None and not args.no_icons:
+                found = download_icon(icon_candidates(title, prev.get("raw") or {}, ""))
+                if found:
+                    prev["icon_sha1"] = found
+                    icons += 1
+            out.append(prev)
             continue
         wt = wikitext(title)
         if not wt:
@@ -207,11 +256,12 @@ def main() -> None:
             "seq": i,
             "raw": box or None,
         }
-        fn = image_filename(wt)
-        if fn and not args.no_icons:
-            rec["icon_sha1"] = download_icon(fn)
+        if not args.no_icons:
+            rec["icon_sha1"] = download_icon(icon_candidates(title, box, wt))
             if rec["icon_sha1"]:
                 icons += 1
+            else:
+                log.warning(f"[{i}/{len(titles)}] {title}: no icon found")
         if rec["raw"] is None:
             log.warning(f"[{i}/{len(titles)}] {title}: no 敌人信息/common2 infobox")
         out.append(rec)

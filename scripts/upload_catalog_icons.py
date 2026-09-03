@@ -28,6 +28,7 @@ Usage:
 import argparse
 import hashlib
 import io
+import json
 import logging
 import os
 from pathlib import Path
@@ -42,11 +43,31 @@ load_dotenv(ROOT / ".env")
 
 log = logging.getLogger("icons")
 
-# alias -> (local dir, R2 key prefix)
+# alias -> (local dir, R2 key prefix, manifest json)
 KINDS = {
-    "enemies": (DATA / "enemy-icons", "enemy-icons"),
-    "items":   (DATA / "item-icons",  "item-icons"),
+    "enemies": (DATA / "enemy-icons", "enemy-icons", DATA / "enemies.json"),
+    "items":   (DATA / "item-icons",  "item-icons",  DATA / "items.json"),
 }
+
+
+def referenced_sha1s(manifest: Path) -> set[str] | None:
+    """icon_sha1 values the catalog actually points at, or None if unknown.
+
+    Uploading the whole directory would be wrong: an earlier version of
+    scrape_enemies took the first [[文件:]] on the page, which is the AVG story
+    CG, so data/enemy-icons/ still holds ~188 of those at ~570KB each — 14x a
+    real portrait, and referenced by nothing. Filtering by the manifest means
+    stale downloads can sit there harmlessly instead of being pushed to R2.
+    """
+    if not manifest.exists():
+        return None
+    try:
+        rows = json.loads(manifest.read_text(encoding="utf-8"))
+    except Exception:                                 # noqa: BLE001
+        return None
+    if not isinstance(rows, list):
+        return None
+    return {r["icon_sha1"] for r in rows if isinstance(r, dict) and r.get("icon_sha1")}
 
 
 def sha1_for(rel: Path) -> str:
@@ -87,13 +108,22 @@ def main() -> None:
 
     total = 0
     for alias in ([args.only] if args.only else list(KINDS)):
-        src, prefix = KINDS[alias]
+        src, prefix, manifest = KINDS[alias]
         if not src.is_dir():
             log.info(f"{alias}: {src.relative_to(ROOT)} absent — nothing to upload")
             continue
+        wanted = referenced_sha1s(manifest)
         files = [f for f in sorted(src.rglob("*")) if f.is_file()]
-        log.info(f"{alias}: {len(files)} file(s) in {src.relative_to(ROOT)}")
-        for i, f in enumerate(files, 1):
+        if wanted is None:
+            log.warning(f"{alias}: no readable {manifest.name} — uploading every file "
+                        f"in the directory, which may include stale downloads")
+            keep = files
+        else:
+            keep = [f for f in files if sha1_for(f.relative_to(DATA)) in wanted]
+        skipped = len(files) - len(keep)
+        log.info(f"{alias}: {len(keep)} of {len(files)} file(s) referenced by "
+                 f"{manifest.name}" + (f"; skipping {skipped} unreferenced" if skipped else ""))
+        for i, f in enumerate(keep, 1):
             key = f"{prefix}/{sha1_for(f.relative_to(DATA))}.png"
             if args.dry_run:
                 if i <= 3:
