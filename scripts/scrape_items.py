@@ -26,6 +26,7 @@ import argparse
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -41,6 +42,7 @@ CARGO_TABLE  = "item"
 CARGO_FIELDS = ("name,description,purpose,obtain_method,rarity,"
                 "category1,category2,category3,itemId,sortId,iconId")
 PAGE      = 500
+BATCH     = 50         # MediaWiki caps a multi-title query at 50 for normal users
 DELAY     = 0.4
 TIMEOUT   = 90
 RETRIES   = 5
@@ -87,35 +89,80 @@ def fetch_rows(limit: int | None) -> list[dict]:
     return rows[:limit] if limit else rows
 
 
-def icon_url(icon_id: str) -> str | None:
-    """Real upload URL for 文件:<iconId>.png (never guess the hash path)."""
-    d = api({"action": "query", "titles": f"文件:{icon_id}.png",
-             "prop": "imageinfo", "iiprop": "url"})
-    for p in d.get("query", {}).get("pages", {}).values():
-        info = p.get("imageinfo")
-        if info:
-            return info[0].get("url")
+def icon_candidates(name: str) -> list[str]:
+    """Filenames to try for an item icon, best first.
+
+    The convention is `道具 <name>.png` — NOT `<iconId>.png`, which was the
+    first guess here and matched nothing (all 1370 items came back with no
+    icon). Found by searching the File namespace for a known item: 龙门币 has
+    `道具 龙门币.png`, `道具 带框 龙门币.png` (framed) and `图标 龙门币.png`.
+    The plain form is the icon we want; the others are fallbacks.
+    """
+    return [f"道具 {name}.png", f"道具 带框 {name}.png", f"图标 {name}.png"]
+
+
+def _unnormalize(d: dict) -> dict[str, str]:
+    """MediaWiki rewrites some titles; `normalized` maps them back, without
+    which a batch reply can't be keyed to what we asked for."""
+    return {n["to"]: n["from"] for n in d.get("query", {}).get("normalized", [])}
+
+
+def icon_urls_batch(filenames: list[str]) -> dict[str, str]:
+    """{filename: url} for those that exist, 50 titles per request.
+
+    One lookup per item would be ~1359 round trips against a host that is
+    regularly seconds-slow — the same trap the enemy scraper hit (~5/min).
+    """
+    out: dict[str, str] = {}
+    uniq = list(dict.fromkeys(filenames))
+    for i in range(0, len(uniq), BATCH):
+        chunk = uniq[i:i + BATCH]
+        d = api({"action": "query", "titles": "|".join(f"文件:{f}" for f in chunk),
+                 "prop": "imageinfo", "iiprop": "url"})
+        back = _unnormalize(d)
+        for p in d.get("query", {}).get("pages", {}).values():
+            info = p.get("imageinfo")
+            if not info:
+                continue
+            t = back.get(p["title"], p["title"])
+            out[t.split(":", 1)[1] if ":" in t else t] = info[0].get("url")
+        log.info(f"  icon lookup {min(i + BATCH, len(uniq))}/{len(uniq)}")
+        time.sleep(DELAY)
+    return out
+
+
+def safe(name: str) -> str:
+    """Windows-safe filename."""
+    return re.sub(r'[:*?"<>|/\\]', "_", name).strip()
+
+
+def download_icon(candidates: list[str], urls: dict[str, str]) -> str | None:
+    """First existing candidate, downloaded. Returns icon_sha1."""
+    for filename in candidates:
+        dst = ICON_DIR / safe(filename)
+        if dst.exists():
+            return sha1_for(dst.relative_to(DATA))
+    for filename in candidates:
+        url = urls.get(filename)
+        if not url:
+            continue
+        r = None
+        for attempt in range(3):
+            try:
+                r = requests.get(url, timeout=TIMEOUT)
+                r.raise_for_status()
+                break
+            except Exception as e:                    # noqa: BLE001
+                log.warning(f"  icon fetch retry {attempt+1}/3 for {filename} ({type(e).__name__})")
+                r = None
+                time.sleep(2.0 * (attempt + 1))
+        if r is None:
+            continue
+        dst = ICON_DIR / safe(filename)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(r.content)
+        return sha1_for(dst.relative_to(DATA))
     return None
-
-
-def download_icon(icon_id: str) -> str | None:
-    """Download to data/item-icons/<iconId>.png; return icon_sha1."""
-    dst = ICON_DIR / f"{icon_id}.png"
-    rel = dst.relative_to(DATA)
-    if dst.exists():
-        return sha1_for(rel)
-    url = icon_url(icon_id)
-    if not url:
-        return None
-    try:
-        r = requests.get(url, timeout=TIMEOUT)
-        r.raise_for_status()
-    except Exception as e:                            # noqa: BLE001
-        log.warning(f"  icon download failed for {icon_id}: {type(e).__name__}")
-        return None
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_bytes(r.content)
-    return sha1_for(rel)
 
 
 def main() -> None:
@@ -136,6 +183,15 @@ def main() -> None:
     rows = fetch_rows(args.limit)
     log.info(f"{len(rows)} row(s) from Cargo")
 
+    # Resolve every icon URL up front in batches of 50, then download. One
+    # lookup per item would be ~1359 sequential round trips; this is ~80.
+    todo = [(r.get("name") or "").strip() for r in rows]
+    todo = [n for n in todo if n and (args.force or n not in existing
+                                      or not existing[n].get("icon_sha1"))]
+    urls: dict[str, str] = {}
+    if todo and not args.no_icons:
+        urls = icon_urls_batch([f for n in todo for f in icon_candidates(n)])
+
     out: list[dict] = []
     new = icons = 0
     for i, r in enumerate(rows):
@@ -143,7 +199,15 @@ def main() -> None:
         if not name:
             continue
         if name in existing and not args.force:
-            out.append(existing[name])
+            prev = existing[name]
+            # Self-healing resume, same as the enemy scraper: a null icon_sha1
+            # from a transient failure would otherwise be skipped forever.
+            if prev.get("icon_sha1") is None and not args.no_icons:
+                found = download_icon(icon_candidates(name), urls)
+                if found:
+                    prev["icon_sha1"] = found
+                    icons += 1
+            out.append(prev)
             continue
         # Cargo returns "obtain method" with a space; keep the raw row too.
         cats = [r.get(f"category{n}") for n in (1, 2, 3)]
@@ -161,16 +225,14 @@ def main() -> None:
             "seq": i,
             "raw": r,
         }
-        icon_id = (r.get("iconId") or "").strip()
-        if icon_id and not args.no_icons:
-            rec["icon_sha1"] = download_icon(icon_id)
+        if not args.no_icons:
+            rec["icon_sha1"] = download_icon(icon_candidates(name), urls)
             if rec["icon_sha1"]:
                 icons += 1
-            time.sleep(DELAY)
         out.append(rec)
         new += 1
-        if new % 50 == 0:
-            log.info(f"  {new} new item(s) …")
+        if new % 100 == 0:
+            log.info(f"  {new} item(s), {icons} icon(s) …")
 
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
