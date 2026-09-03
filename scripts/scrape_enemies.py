@@ -47,6 +47,7 @@ API      = "https://prts.wiki/api.php"
 
 CATEGORY = "Category:敌人"
 DELAY    = 0.4
+BATCH    = 50          # MediaWiki caps a multi-title query at 50 for normal users
 TIMEOUT  = 90
 RETRIES  = 5
 
@@ -94,13 +95,53 @@ def enemy_pages() -> list[str]:
         time.sleep(DELAY)
 
 
-def wikitext(title: str) -> str | None:
-    d = api({"action": "query", "prop": "revisions", "titles": title,
-             "rvprop": "content", "rvslots": "main"})
-    for p in d.get("query", {}).get("pages", {}).values():
-        if "revisions" in p:
-            return p["revisions"][0]["slots"]["main"]["*"]
-    return None
+def _unnormalize(d: dict) -> dict[str, str]:
+    """MediaWiki rewrites some titles (underscores, capitalisation) and reports
+    the mapping in `normalized`. Without it a batch reply can't be matched back
+    to the title we asked for."""
+    return {n["to"]: n["from"] for n in d.get("query", {}).get("normalized", [])}
+
+
+def wikitext_batch(titles: list[str]) -> dict[str, str]:
+    """{title: wikitext} for up to BATCH titles per request.
+
+    The API takes 50 titles at a time, so fetching pages one by one costs ~1783
+    round trips against a host that is often seconds-slow — measured at ~5
+    enemies/minute, i.e. about five hours. Batching makes it ~36 requests.
+    """
+    out: dict[str, str] = {}
+    for i in range(0, len(titles), BATCH):
+        chunk = titles[i:i + BATCH]
+        d = api({"action": "query", "prop": "revisions", "titles": "|".join(chunk),
+                 "rvprop": "content", "rvslots": "main"})
+        back = _unnormalize(d)
+        for p in d.get("query", {}).get("pages", {}).values():
+            if "revisions" in p:
+                t = p["title"]
+                out[back.get(t, t)] = p["revisions"][0]["slots"]["main"]["*"]
+        log.info(f"  wikitext {min(i + BATCH, len(titles))}/{len(titles)}")
+        time.sleep(DELAY)
+    return out
+
+
+def icon_urls_batch(filenames: list[str]) -> dict[str, str]:
+    """{filename: url} for the ones that exist. Same batching argument."""
+    out: dict[str, str] = {}
+    uniq = list(dict.fromkeys(filenames))
+    for i in range(0, len(uniq), BATCH):
+        chunk = uniq[i:i + BATCH]
+        d = api({"action": "query", "titles": "|".join(f"文件:{f}" for f in chunk),
+                 "prop": "imageinfo", "iiprop": "url"})
+        back = _unnormalize(d)
+        for p in d.get("query", {}).get("pages", {}).values():
+            info = p.get("imageinfo")
+            if not info:
+                continue
+            t = back.get(p["title"], p["title"])
+            out[t.split(":", 1)[1] if ":" in t else t] = info[0].get("url")
+        log.info(f"  icon lookup {min(i + BATCH, len(uniq))}/{len(uniq)}")
+        time.sleep(DELAY)
+    return out
 
 
 def parse_infobox(wt: str) -> dict:
@@ -167,18 +208,20 @@ def safe(name: str) -> str:
     return re.sub(r'[:*?"<>|/\\]', "_", name).strip()
 
 
-def download_icon(candidates: list[str]) -> str | None:
+def download_icon(candidates: list[str], urls: dict[str, str] | None = None) -> str | None:
     """First candidate that exists on the wiki, downloaded. Returns icon_sha1.
 
-    Checks the local cache before asking the API, so a resumed run costs no
-    requests for enemies already fetched.
+    Checks the local cache before any network work, so a resumed run costs
+    nothing for enemies already fetched. `urls` is the pre-resolved batch map;
+    without it each candidate is looked up individually (the resume path, where
+    only a handful are left).
     """
     for filename in candidates:
         dst = ICON_DIR / safe(filename)
         if dst.exists():
             return sha1_for(dst.relative_to(DATA))
     for filename in candidates:
-        url = icon_url(filename)
+        url = urls.get(filename) if urls is not None else icon_url(filename)
         if not url:
             continue
         # Retry the image fetch itself: icon_url() goes through api() and so is
@@ -223,6 +266,36 @@ def main() -> None:
     if args.limit:
         titles = titles[:args.limit]
 
+    # Three phases rather than one loop. Doing everything per-enemy meant three
+    # sequential round trips each against a host that is often seconds-slow —
+    # measured at ~5 enemies/minute, about five hours for the full category.
+    # Batching the two lookup phases (50 titles per request) leaves only the
+    # image downloads as per-enemy work.
+    todo = [t for t in titles if args.force or t not in existing]
+    log.info(f"{len(todo)} to fetch, {len(titles) - len(todo)} already known")
+
+    pages = wikitext_batch(todo) if todo else {}
+
+    boxes: dict[str, dict] = {}
+    cands: dict[str, list[str]] = {}
+    for title in todo:
+        wt = pages.get(title)
+        if wt is None:
+            continue
+        boxes[title] = parse_infobox(wt)
+        cands[title] = icon_candidates(title, boxes[title], wt)
+
+    urls: dict[str, str] = {}
+    if not args.no_icons:
+        # Resume also needs lookups for records that never got an icon.
+        retry = [t for t in titles
+                 if t in existing and not args.force
+                 and existing[t].get("icon_sha1") is None]
+        for t in retry:
+            cands.setdefault(t, icon_candidates(t, existing[t].get("raw") or {}, ""))
+        wanted = [f for t in (list(cands.keys())) for f in cands[t]]
+        urls = icon_urls_batch(wanted)
+
     out: list[dict] = []
     new = failed = icons = 0
     for i, title in enumerate(titles, 1):
@@ -233,18 +306,17 @@ def main() -> None:
             # enemy would silently never get an icon. Retrying is cheap — the
             # local cache is checked before any request.
             if prev.get("icon_sha1") is None and not args.no_icons:
-                found = download_icon(icon_candidates(title, prev.get("raw") or {}, ""))
+                found = download_icon(cands.get(title, []), urls)
                 if found:
                     prev["icon_sha1"] = found
                     icons += 1
             out.append(prev)
             continue
-        wt = wikitext(title)
-        if not wt:
+        if title not in boxes:
             log.warning(f"[{i}/{len(titles)}] {title}: no wikitext")
             failed += 1
             continue
-        box = parse_infobox(wt)
+        box = boxes[title]
         rec = {
             "name": (box.get("名称") or title).strip(),
             "code": (box.get("index") or "").strip() or None,
@@ -257,18 +329,15 @@ def main() -> None:
             "raw": box or None,
         }
         if not args.no_icons:
-            rec["icon_sha1"] = download_icon(icon_candidates(title, box, wt))
+            rec["icon_sha1"] = download_icon(cands.get(title, []), urls)
             if rec["icon_sha1"]:
                 icons += 1
-            else:
-                log.warning(f"[{i}/{len(titles)}] {title}: no icon found")
         if rec["raw"] is None:
             log.warning(f"[{i}/{len(titles)}] {title}: no 敌人信息/common2 infobox")
         out.append(rec)
         new += 1
-        if new % 25 == 0:
-            log.info(f"  [{i}/{len(titles)}] {new} new …")
-        time.sleep(DELAY)
+        if new % 100 == 0:
+            log.info(f"  [{i}/{len(titles)}] {new} fetched, {icons} icon(s) …")
 
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     OUT_JSON.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
