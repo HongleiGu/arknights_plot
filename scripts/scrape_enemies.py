@@ -11,6 +11,7 @@ Per page we want only what the catalog needs:
     描述   → description    ditto
     种类   → kind           ditto (感染生物 / 萨卡兹 / …)
     地位级别 → rank          ditto (普通 / 精英 / BOSS)
+    登场活动 → debut         ditto — the event it first appeared in
     index  → code           ditto (B1 …), the wiki's own ordering key
     头像 敌人 <名称>.png     → the portrait icon (see icon_candidates)
 
@@ -323,6 +324,9 @@ def main() -> None:
             "description": (box.get("描述") or "").strip() or None,
             "kind": (box.get("种类") or "").strip() or None,
             "rank": (box.get("地位级别") or "").strip() or None,
+            # 登场活动 — present on every enemy, and the most useful way to
+            # browse the bestiary: "what showed up in this event".
+            "debut": (box.get("登场活动") or "").strip() or None,
             "wiki_href": f"https://prts.wiki/w/{requests.utils.quote(title)}",
             "icon_sha1": None,
             "seq": i,

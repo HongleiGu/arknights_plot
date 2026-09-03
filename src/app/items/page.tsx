@@ -7,18 +7,18 @@ export const dynamic = 'force-dynamic'
 const PAGE_SIZE = 60
 
 interface Props {
-  searchParams: Promise<{ q?: string; rarity?: string; category?: string; page?: string }>
+  searchParams: Promise<{ q?: string; rarity?: string; group?: string; category?: string; page?: string }>
 }
 
 export default async function ItemsPage({ searchParams }: Props) {
   const sp = await searchParams
-  const { q, rarity, category } = sp
+  const { q, rarity, group, category } = sp
   const page = Math.max(1, parseInt(sp.page ?? '1', 10) || 1)
   const supabase = await createClient()
 
   let query = supabase
     .from('items')
-    .select('id, name, description, usage_text, obtain_method, rarity, category, icon_sha1',
+    .select('id, name, description, usage_text, obtain_method, rarity, category, item_group, icon_sha1',
             { count: 'exact' })
     .order('rarity', { ascending: false })
     .order('seq', { ascending: true })
@@ -28,6 +28,7 @@ export default async function ItemsPage({ searchParams }: Props) {
     query = query.or(`name.ilike.%${t}%,description.ilike.%${t}%`)
   }
   if (rarity) query = query.eq('rarity', Number(rarity))
+  if (group) query = query.eq('item_group', group)
   if (category) query = query.eq('category', category)
   const { data: items, count } = await query
 
@@ -38,6 +39,9 @@ export default async function ItemsPage({ searchParams }: Props) {
   // Category has 37 distinct values (420 of them 信物), which is a wall of
   // links rather than a filter — so it's a <select> instead of chips.
   const RARITIES = ['5', '4', '3', '2', '1', '0']
+  // Coarse buckets over category1's 29-value long tail (see import_catalog.py).
+  // Fixed order rather than derived, so the row doesn't reshuffle as data changes.
+  const GROUPS = ['信物', '干员养成', '建造材料', '寻访凭证', '消耗品', '活动道具', '其他道具']
   const { data: catRows } = await supabase
     .from('items').select('category').not('category', 'is', null).limit(2000)
   const categories = [...new Set((catRows ?? []).map(r => r.category as string))].sort()
@@ -52,6 +56,7 @@ export default async function ItemsPage({ searchParams }: Props) {
       </p>
 
       <CatalogSearch action="/items" q={q} placeholder="搜索道具名称或描述…" />
+      <CatalogFilters base="/items" current={group} values={GROUPS} param="group" />
       <CatalogFilters
         base="/items" current={rarity} values={RARITIES} param="rarity"
         labels={Object.fromEntries(RARITIES.map(r => [r, `★${r}`]))}
@@ -61,6 +66,7 @@ export default async function ItemsPage({ searchParams }: Props) {
       <form action="/items" className="flex gap-2 mb-6">
         {q && <input type="hidden" name="q" value={q} />}
         {rarity && <input type="hidden" name="rarity" value={rarity} />}
+        {group && <input type="hidden" name="group" value={group} />}
         <select
           name="category" defaultValue={category ?? ''}
           className="flex-1 bg-ark-surface border border-ark-border px-2 py-1.5 text-sm text-ark-text
@@ -88,7 +94,7 @@ export default async function ItemsPage({ searchParams }: Props) {
 
       <CatalogPager
         base="/items" page={page} pageSize={PAGE_SIZE} total={total}
-        params={{ q, rarity, category }}
+        params={{ q, rarity, group, category }}
       />
     </div>
   )

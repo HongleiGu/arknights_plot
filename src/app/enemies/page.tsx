@@ -7,12 +7,12 @@ export const dynamic = 'force-dynamic'
 const PAGE_SIZE = 60
 
 interface Props {
-  searchParams: Promise<{ q?: string; rank?: string; kind?: string; page?: string }>
+  searchParams: Promise<{ q?: string; rank?: string; kind?: string; debut?: string; page?: string }>
 }
 
 export default async function EnemiesPage({ searchParams }: Props) {
   const sp = await searchParams
-  const { q, rank, kind } = sp
+  const { q, rank, kind, debut } = sp
   const page = Math.max(1, parseInt(sp.page ?? '1', 10) || 1)
   const supabase = await createClient()
 
@@ -20,7 +20,7 @@ export default async function EnemiesPage({ searchParams }: Props) {
   // what the pager needs — there are 1780 enemies, so paging isn't optional.
   let query = supabase
     .from('enemies')
-    .select('id, name, code, description, kind, rank, icon_sha1', { count: 'exact' })
+    .select('id, name, code, description, kind, rank, debut, icon_sha1', { count: 'exact' })
     .order('seq', { ascending: true })
     .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
   // Search name AND description: people look an enemy up by what it does at
@@ -31,6 +31,7 @@ export default async function EnemiesPage({ searchParams }: Props) {
   }
   if (rank) query = query.eq('rank', rank)
   if (kind) query = query.eq('kind', kind)
+  if (debut) query = query.eq('debut', debut)
   const { data: enemies, count } = await query
 
   const rows = enemies ?? []
@@ -43,6 +44,11 @@ export default async function EnemiesPage({ searchParams }: Props) {
   const { data: kindRows } = await supabase
     .from('enemies').select('kind').not('kind', 'is', null).limit(2000)
   const kinds = [...new Set((kindRows ?? []).map(r => r.kind as string))].sort()
+  // 登场活动 is on every enemy and is the way people actually look one up
+  // ("what was in this event"), but 102 values is a dropdown, not a chip row.
+  const { data: debutRows } = await supabase
+    .from('enemies').select('debut').not('debut', 'is', null).limit(2000)
+  const debuts = [...new Set((debutRows ?? []).map(r => r.debut as string))].sort()
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
@@ -57,11 +63,30 @@ export default async function EnemiesPage({ searchParams }: Props) {
       <CatalogFilters base="/enemies" current={rank} values={RANKS} param="rank" />
       <CatalogFilters base="/enemies" current={kind} values={kinds} param="kind" />
 
+      {/* GET form so the event filter works without JS, like the search box */}
+      <form action="/enemies" className="flex gap-2 mb-6">
+        {q && <input type="hidden" name="q" value={q} />}
+        {rank && <input type="hidden" name="rank" value={rank} />}
+        {kind && <input type="hidden" name="kind" value={kind} />}
+        <select
+          name="debut" defaultValue={debut ?? ''}
+          className="flex-1 bg-ark-surface border border-ark-border px-2 py-1.5 text-sm text-ark-text
+                     outline-none focus:border-ark-accent-dim"
+        >
+          <option value="">全部登场活动</option>
+          {debuts.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <button className="font-mono text-[10px] tracking-widest uppercase px-3 border border-ark-border
+                           text-ark-muted hover:text-ark-accent hover:border-ark-accent-dim transition-colors">
+          筛选
+        </button>
+      </form>
+
       <CatalogList
         entries={rows.map(e => ({
           id: e.id,
           name: e.name,
-          sub: [e.code, e.rank, e.kind].filter(Boolean).join(' · ') || null,
+          sub: [e.code, e.rank, e.kind, e.debut].filter(Boolean).join(' · ') || null,
           description: e.description,
           iconUrl: enemyIconUrl(e.icon_sha1),
           href: `/enemies/${e.id}`,
@@ -70,7 +95,7 @@ export default async function EnemiesPage({ searchParams }: Props) {
 
       <CatalogPager
         base="/enemies" page={page} pageSize={PAGE_SIZE} total={total}
-        params={{ q, rank, kind }}
+        params={{ q, rank, kind, debut }}
       />
     </div>
   )

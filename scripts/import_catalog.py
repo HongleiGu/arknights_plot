@@ -46,15 +46,54 @@ CATALOGS = {
     "enemies": (
         ROOT / "data" / "enemies.json",
         "enemies",
-        ("name", "code", "description", "kind", "rank", "icon_sha1", "wiki_href", "seq", "raw"),
+        ("name", "code", "description", "kind", "rank", "debut",
+         "icon_sha1", "wiki_href", "seq", "raw"),
     ),
     "items": (
         ROOT / "data" / "items.json",
         "items",
         ("name", "description", "usage_text", "obtain_method", "rarity", "category",
-         "item_key", "icon_sha1", "wiki_href", "seq", "raw"),
+         "item_group", "item_key", "icon_sha1", "wiki_href", "seq", "raw"),
     ),
 }
+
+# ---- item_group (038) ------------------------------------------------------
+# Cargo's category1 has 29 values with a long tail (信物 420 … 其他干员道具 2):
+# fine as data, useless as a filter row. This folds them into buckets a reader
+# would actually pick from.
+#
+# It needs a NAME fallback, not just category1: 103 items have no category1 at
+# all, and nearly all of them are class tokens (近卫信物原件) or vouchers
+# (寻访数据契约（…）) that clearly belong somewhere.
+#
+# Measured over the current 1359 items:
+#   信物 690 · 活动道具 164 · 干员养成 155 · 寻访凭证 131 · 消耗品 119
+#   建造材料 58 · 其他道具 42
+# 活动道具 is its own bucket on purpose — folded into 其他道具 it made that 15%
+# and a dumping ground; split out, 其他道具 is a real 3% residual.
+DEV_CATS   = {"材料", "基础道具", "养成材料组合", "芯片", "双芯片", "芯片组",
+              "作战记录", "技巧概要", "技巧集", "其他干员道具"}
+BUILD_CATS = {"建材", "建材原材料", "家具收藏包"}
+USE_CATS   = {"理智回复道具", "消耗道具", "物资补给", "食物"}
+
+
+def item_group(name: str, category1: str | None) -> str:
+    c1 = (category1 or "").strip()
+    # 信物 first: it also catches 中坚信物/通用信物 and the class-token variants
+    # that carry no category at all.
+    if "信物" in c1 or "信物" in name or c1 in ("私人信件", "纪念物"):
+        return "信物"
+    if c1 in DEV_CATS:
+        return "干员养成"
+    if c1 in BUILD_CATS:
+        return "建造材料"
+    if "寻访" in c1 or "凭证" in c1 or any(k in name for k in ("寻访", "凭证", "契约")):
+        return "寻访凭证"
+    if c1 in USE_CATS:
+        return "消耗品"
+    if c1 == "活动道具":
+        return "活动道具"
+    return "其他道具"
 
 
 def client() -> Client:
@@ -98,7 +137,12 @@ def main() -> None:
             name = (r.get("name") or "").strip()
             if not name:
                 continue
-            by_name[name] = {c: r.get(c) for c in cols} | {"name": name}
+            row = {c: r.get(c) for c in cols} | {"name": name}
+            if alias == "items":
+                # Derived, not scraped — recomputed on every import so changing
+                # the mapping is one edit plus a re-run.
+                row["item_group"] = item_group(name, (r.get("raw") or {}).get("category1"))
+            by_name[name] = row
         payload = list(by_name.values())
         dropped = len(rows) - len(payload)
 
