@@ -202,6 +202,14 @@ index page has anything in its wikitext:
   first `[[文件:…]]` as the asset. Level-by-level stat blocks are deliberately
   skipped: this is a story archive, not a combat wiki, and nothing reads them.
 
+`@enemy/12` and `@item/34` resolve like any other reference: `lib/references.ts`
+knows both types, so they render as chips with hover previews in comments and
+board nodes, are searchable in `CiteSearch`, and the AI can `search`/`read`
+them. No schema was needed for board citations — `correlation_member_refs`
+(033) is generic over `@word/digits`, so the only thing that was missing was
+the resolver. Previews fall back to the classification when there's no
+description (76 enemies have none, and a blank chip reads as broken).
+
 `import_catalog.py` loads both (`--only enemies|items`), `upload_catalog_icons.py`
 pushes icons to R2 under `enemy-icons/<sha1>.png` / `item-icons/<sha1>.png` —
 sha1 of the data/-relative path, the same convention as every other asset, so

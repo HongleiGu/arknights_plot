@@ -21,9 +21,11 @@ export const REF_TYPE_COL: Record<string, string> = {
   text: 'text_chunk_id',
   furniture: 'furniture_item_id',
   entity: 'entity_id',
+  enemy: 'enemy_id',
+  item: 'item_id',
 }
 
-const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|entity|user)\/(\d+)/g
+const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|entity|enemy|item|user)\/(\d+)/g
 
 export interface ReferenceData {
   key: string            // "node/68725"
@@ -79,9 +81,16 @@ export async function resolveReferences(
     fetchByIds('event_options', 'id, event_id, label, description, outcome', idsOf('option')),
     fetchByIds('furniture_items', 'id, story_id, name, description', idsOf('furniture')),
   ])
-  // World-graph entities (026) — no story parent; they're cross-cutting.
-  const entitiesD = await fetchByIds('entities', 'id, type, name, name_en, summary, mention_count', idsOf('entity'))
+  // World-graph entities (026) and the global catalogs (037) — none of these
+  // have a story parent, so they skip the stage-2/3 parent resolution entirely.
+  const [entitiesD, enemiesD, itemsD] = await Promise.all([
+    fetchByIds('entities', 'id, type, name, name_en, summary, mention_count', idsOf('entity')),
+    fetchByIds('enemies', 'id, name, code, description, kind, rank, debut', idsOf('enemy')),
+    fetchByIds('items', 'id, name, description, usage_text, rarity, item_group', idsOf('item')),
+  ])
   const entityMap = new Map(entitiesD.map(e => [e.id as number, e]))
+  const enemyMap = new Map(enemiesD.map(e => [e.id as number, e]))
+  const itemMap = new Map(itemsD.map(i => [i.id as number, i]))
 
   // Stage 2 — parents of the above.
   const extraChapterIds = nodes.map(n => n.chapter_id as number).filter(id => !idsOf('chapter').includes(id))
@@ -168,6 +177,18 @@ export async function resolveReferences(
       const f = furnitureMap.get(r.id); const s = f ? storyMap.get(f.story_id as number) : undefined
       if (!f || !s) continue
       push(f.name as string, storyPath(s), trunc(f.description as string) ?? (s.name as string))
+    } else if (r.type === 'enemy') {
+      const e = enemyMap.get(r.id); if (!e) continue
+      // Fall back to the classification when an enemy has no description —
+      // 76 of them don't, and a blank preview reads as a broken chip.
+      const preview = trunc(e.description as string)
+        ?? ([e.rank, e.kind, e.debut].filter(Boolean).join(' · ') || null)
+      push(e.name as string, `/enemies/${e.id}`, preview)
+    } else if (r.type === 'item') {
+      const i = itemMap.get(r.id); if (!i) continue
+      const preview = trunc((i.description as string) || (i.usage_text as string))
+        ?? ([i.rarity != null ? `★${i.rarity}` : null, i.item_group].filter(Boolean).join(' · ') || null)
+      push(i.name as string, `/items/${i.id}`, preview)
     } else if (r.type === 'entity') {
       const e = entityMap.get(r.id); if (!e) continue
       const preview = trunc(e.summary as string)

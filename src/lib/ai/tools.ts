@@ -35,14 +35,14 @@ function toAnchor(type: string, id: number): Anchor | null {
 
 type Db = Awaited<ReturnType<typeof createClient>>
 
-const TYPE_ENUM = ['story', 'chapter', 'node', 'gadget', 'event', 'option', 'text', 'furniture']
+const TYPE_ENUM = ['story', 'chapter', 'node', 'gadget', 'event', 'option', 'text', 'furniture', 'enemy', 'item']
 
 export const TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
       name: 'search',
-      description: '按内容「子串」搜索某类实体（剧情/章节/台词/藏品/事件/选项/文段/家具），返回候选（含 id、标题、摘要）。注意：这是子串匹配，不是网络搜索——用单个专有名词（人名/物名）最有效；多个词之间是 AND（需同时出现在同一条记录里），所以别把不同实体的词拼在一起（如把剧情名塞进找人名的 query）。要在某剧情/章节内找台词，改用 story_id / chapter_id 限定。人名可能是生僻字/异体字，0 结果时可换字重试。',
+      description: '按内容「子串」搜索某类实体（剧情/章节/台词/藏品/事件/选项/文段/家具/敌人/道具），返回候选（含 id、标题、摘要）。注意：这是子串匹配，不是网络搜索——用单个专有名词（人名/物名）最有效；多个词之间是 AND（需同时出现在同一条记录里），所以别把不同实体的词拼在一起（如把剧情名塞进找人名的 query）。要在某剧情/章节内找台词，改用 story_id / chapter_id 限定。人名可能是生僻字/异体字，0 结果时可换字重试。',
       parameters: {
         type: 'object',
         properties: {
@@ -400,6 +400,22 @@ async function readEntity(supabase: Db, type: string, id: number): Promise<strin
       const { data: f } = await supabase.from('furniture_items').select('name, description').eq('id', id).maybeSingle()
       if (!f) return '未找到'
       return `家具 ${f.name} furniture/${id}\n${f.description ?? ''}`
+    }
+    case 'enemy': {
+      const { data: e } = await supabase.from('enemies')
+        .select('name, code, description, kind, rank, debut').eq('id', id).maybeSingle()
+      if (!e) return '未找到'
+      const meta = [e.code, e.rank, e.kind, e.debut && `登场：${e.debut}`].filter(Boolean).join(' · ')
+      return `敌人 ${e.name} enemy/${id}\n${meta}\n${e.description ?? ''}`
+    }
+    case 'item': {
+      const { data: i } = await supabase.from('items')
+        .select('name, description, usage_text, obtain_method, rarity, item_group')
+        .eq('id', id).maybeSingle()
+      if (!i) return '未找到'
+      const meta = [i.rarity != null && `★${i.rarity}`, i.item_group,
+                    i.obtain_method && `获得：${i.obtain_method}`].filter(Boolean).join(' · ')
+      return `道具 ${i.name} item/${id}\n${meta}\n${i.description ?? ''}${i.usage_text ? `\n用途：${i.usage_text}` : ''}`
     }
     default:
       return `未知类型：${type}`

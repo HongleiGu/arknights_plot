@@ -556,7 +556,7 @@ export async function boardBacklinks(
 const TYPE_TABLE: Record<string, string> = {
   story: 'stories', chapter: 'chapters', node: 'nodes', gadget: 'gadgets',
   event: 'events', option: 'event_options', text: 'text_chunks', furniture: 'furniture_items',
-  entity: 'entities',
+  entity: 'entities', enemy: 'enemies', item: 'items',
 }
 // All relevant text columns searched per type (any-match, not just the name).
 const TYPE_SEARCH_COLS: Record<string, string[]> = {
@@ -569,6 +569,8 @@ const TYPE_SEARCH_COLS: Record<string, string[]> = {
   text: ['title', 'body'],
   furniture: ['name', 'description'],
   entity: ['name', 'name_en', 'summary'],
+  enemy: ['name', 'description', 'kind', 'debut'],
+  item: ['name', 'description', 'usage_text'],
 }
 
 /**

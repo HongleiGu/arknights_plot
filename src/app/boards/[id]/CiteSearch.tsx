@@ -25,7 +25,7 @@ import type { ReferenceData } from '@/lib/references'
 const TYPES: [string, string][] = [
   ['node', '台词'], ['story', '剧情'], ['chapter', '章节'], ['gadget', '藏品'],
   ['event', '事件'], ['option', '选项'], ['text', '文段'], ['furniture', '家具'],
-  ['entity', '实体'],
+  ['entity', '实体'], ['enemy', '敌人'], ['item', '道具'],
 ]
 
 // Types whose rows live under a story, so scoping by story/chapter helps.
