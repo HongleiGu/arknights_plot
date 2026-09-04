@@ -45,10 +45,40 @@ export default async function EnemiesPage({ searchParams }: Props) {
     .from('enemies').select('kind').not('kind', 'is', null).limit(2000)
   const kinds = [...new Set((kindRows ?? []).map(r => r.kind as string))].sort()
   // 登场活动 is on every enemy and is the way people actually look one up
-  // ("what was in this event"), but 102 values is a dropdown, not a chip row.
+  // ("what was in this event"), but 102 values is a dropdown, not a chip row —
+  // and 102 unsorted names is barely better than none, so they're grouped.
+  //
+  // The grouping is mostly derived rather than hand-listed: 64 of the 102
+  // values ARE story names, so their stories.category is the group. The rest
+  // fall out of two rules plus a catch-all.
   const { data: debutRows } = await supabase
     .from('enemies').select('debut').not('debut', 'is', null).limit(2000)
-  const debuts = [...new Set((debutRows ?? []).map(r => r.debut as string))].sort()
+  const { data: storyRows } = await supabase.from('stories').select('name, category').limit(2000)
+  const storyCategory = new Map((storyRows ?? []).map(s => [s.name as string, s.category as string]))
+
+  const debutGroup = (d: string): string => {
+    // 初始 is not an event: it's the 70 launch-day enemies (暴乱分子, 源石虫…),
+    // all carrying the original numeric/A/B codes. Its own group, and labelled
+    // below so the dropdown doesn't leave you guessing.
+    if (d === '初始') return '初始'
+    if (d.startsWith('主线')) return '主线'
+    if (d.startsWith('保全派驻')) return '保全派驻'
+    return storyCategory.get(d) ?? '活动与其它'
+  }
+  // Fixed order so the dropdown doesn't reshuffle as data changes; anything a
+  // future rule doesn't cover lands in 活动与其它 at the end.
+  const GROUP_ORDER = ['初始', '主线', '支线', '故事集', '集成战略', '生息演算',
+                       '四月辑录', '特殊', '保全派驻', '活动与其它']
+  const grouped = new Map<string, string[]>()
+  for (const d of [...new Set((debutRows ?? []).map(r => r.debut as string))].sort()) {
+    const g = debutGroup(d)
+    grouped.set(g, [...(grouped.get(g) ?? []), d])
+  }
+  const debutGroups = [...grouped.entries()]
+    .sort((a, b) => {
+      const ai = GROUP_ORDER.indexOf(a[0]), bi = GROUP_ORDER.indexOf(b[0])
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+    })
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-12">
@@ -74,7 +104,17 @@ export default async function EnemiesPage({ searchParams }: Props) {
                      outline-none focus:border-ark-accent-dim"
         >
           <option value="">全部登场活动</option>
-          {debuts.map(d => <option key={d} value={d}>{d}</option>)}
+          {debutGroups.map(([g, ds]) => (
+            <optgroup key={g} label={g}>
+              {ds.map(d => (
+                <option key={d} value={d}>
+                  {/* 初始 means "in the game at launch" — spell it out, since
+                      on its own it reads like a placeholder. */}
+                  {d === '初始' ? '初始（开服基础敌人）' : d}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
         <button className="font-mono text-[10px] tracking-widest uppercase px-3 border border-ark-border
                            text-ark-muted hover:text-ark-accent hover:border-ark-accent-dim transition-colors">
