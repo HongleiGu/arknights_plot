@@ -15,6 +15,7 @@ const CATEGORIES: {
   { id: '家具',     latin: 'FURNITURE',      name: '家具图鉴', desc: '基建家具与装饰主题' },
   { id: '敌人',     latin: 'ENEMY',          name: '敌人图鉴', desc: '敌方单位与描述', href: '/enemies' },
   { id: '道具',     latin: 'ITEM',           name: '道具图鉴', desc: '材料、信物与凭证', href: '/items' },
+  { id: '年表',     latin: 'TIMELINE',       name: '泰拉年表', desc: '按时间排布的事件', href: '/timeline' },
 ]
 
 export default function HomePage() {

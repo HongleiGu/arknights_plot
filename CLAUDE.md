@@ -45,6 +45,7 @@ by themselves:
 | `scrape_operator_milv.py` | same category | operators whose `.txt` exist |
 | `scrape_gadgets.py` / `scrape_events.py` | each theme's wiki page | themes already in their JSON |
 | `parse_plots.py` | local `.txt` | chapters already in the DB |
+| `scrape_terra_timeline.py` | `泰拉年表` (one page) | nothing — always re-reads |
 | `seed_entities.py` | `nodes.speaker` | upsert on `(type, name)` |
 
 So there is no separate "check what's new" scraper, and shouldn't be — adding
@@ -71,6 +72,8 @@ content. `--sync` prints a reminder.
 2c. `scrape_events.py [--force]` — **force-only** in the pipeline. Scrapes the 集成战略 random-event decision trees from each theme's `事件一览` into `data/events.json` for **all 6 themes** (287 events / 2484 options). Two layouts, auto-detected: the 5 modern themes hydrate a hidden `IS-event-data-root` widget block (`_parse_widget`, nested trees + predicates); `刻俄柏的灰蕈迷境` uses the older MediaWiki wikitable layout (`_parse_wikitable`, flat — `<h3>` per event, inner collapsible table per choice). Idempotent: skips themes already in `events.json` unless `--force`. Writes `data/events_scrape.json` for debugging (per-theme counts — a sudden 0 flags a layout change). See `data/events.example.json` for the shape.
 2d. `import_events.py [--force]` — replace-per-theme load of `data/events.json` into `events` + `event_options` (self-ref tree). No-op if that file is absent. Always wipes a listed theme's events (cascade) then re-inserts — idempotent; events are wholly scrape-sourced (no hand-edits).
 2e. `scrape_is_text.py [--force] [--no-import]` — **standalone** (not in the pipeline). Scrapes 集成战略 supplementary text from each theme's archive sub-page into `data/is_text.json`, then calls `import_is_text.py` automatically. Two sections per theme: `遐想交织录` (character dossiers → `kind='character_record'`) and `预言诗篇` (ending epilogue text → `kind='ending_supplement'`). Each `PART` block in the wiki → one `text_chunk` row. Idempotent: skips themes already in `is_text.json` unless `--force`. Writes `data/is_text_scrape.json` for debugging (chunk counts — a sudden 0 flags a layout change). Currently implements **萨卡兹的无终奇语** only (`THEMES` list in the script); add entries for other themes as their archive sub-pages are confirmed. `刻俄柏の灰蕈迷境` has no character records — no entry needed.
+2f. `scrape_terra_timeline.py` — scrapes prts.wiki `泰拉年表` into `data/timeline.json`: 890 dated events, each with the wiki's own citations. One page, so it always re-fetches rather than carrying a marker — that *is* its `--sync` behaviour. Writes `data/timeline_scrape.json` for debugging (per-precision + per-ref-kind counts; a collapse in `day`/`month` precision flags a layout change).
+2g. `import_timeline.py [--dry-run]` — replace-all load into `timeline_events` (039). Resolves each citation against `chapters` **by plot-file basename**, not by `(level_code, level_name, stage)`: `chapters.file_path` already encodes the exact on-disk convention, so one normalised key covers ordinary levels, compound stages (`15-17 “她”/END/SP2`), and the four `safe_name()`-sanitised colon levels (`7-1 32:00:00` → `7-1 32_00_00`) that the column-wise match misses. Note `file_path` uses **backslashes**. Measured: 547/547 chapter refs and 26/26 干员密录 refs resolve; the ~180 that don't are wiki aggregator pages (`大地巡旅`, `情报处理室`, `剧情一览`) which are not stories here — those stay in `refs` unresolved rather than being dropped.
 3. `import_wiki_descriptions.py` — fills `chapter_descriptions` from `data/story_descriptions.json`
 4. `scrape_story_pages.py` — for each story, fetches `prts.wiki/w/<story_name>` and extracts `name_en` (the `副标题` field), `description` (first `<div class="poem">` block), and the title image filename (`标题图文件名`). Downloads the title image into the matching `data/img/<grouping>/<story>.<ext>` and stamps `stories.name_en` + `stories.description`. Skips stories whose `description` is already set unless `--force`. Writes `data/story_pages.json` for debugging / cover handling.
 5. `upload_story_images.py` — uploads all `<story>.png` / `.jpg` / `_cover.png` / `_icon.png` files under `data/img/` to Storage (non-PNG converted to PNG via Pillow), stamps `stories.{icon,title,cover}_sha1`. When multiple files match the same `(kind, story)` pair, the most recently modified wins — so a fresh JPG from step 4 supersedes an older local PNG.
@@ -226,6 +229,45 @@ UI: `/enemies` and `/items` (search + filter, server-rendered with a plain
 `<form>` like `/world`, no client JS) and `/enemies/[id]` / `/items/[id]`.
 `components/CatalogList.tsx` is shared between them — the two catalogs differ
 only in data source and labels.
+
+**Timeline — `timeline_events`** (`039`, AP-27): the time axis the entity graph
+lacked. `entity_relations` (026) is timeless — "凯尔希和阿米娅是盟友" can't
+answer *when*, because entities don't carry time. Events do, so events become
+first-class and time enters through them.
+
+The time did **not** have to be inferred: prts.wiki `泰拉年表` is a curated,
+cited chronology, so this is a scrape (890 rows), not an extraction — the same
+posture as `seed_entities.py` deriving characters from `nodes.speaker` instead
+of running NER. It's also two-for-one: every row is itself an event with a
+description and citations, so it seeds the event layer with zero LLM cost.
+
+Like `entities` (026) and `enemies`/`items` (037) it does **not** FK to
+`stories` — an event belongs to the world, and most cite several stories at once.
+
+**These dates are inferred, not canon.** The source page carries its own banner
+(以下时间均通过游戏内剧情推测，可能会出现偏差), so every row keeps its
+citations and the UI renders them as sourced claims. Don't let this become "the
+official timeline" in how it's presented.
+
+`seq` (the source page's own order) is the sort key, not `(year, month, day)`:
+it's total and already chronological, and it spans the pre-Terra era, BC years,
+`12世纪（时间未知）` and the TT calendar — none of which sort numerically.
+year/month/day are for display and filtering only. `precision` is explicit
+rather than implied by NULLs because the spread is real: year 460 · day 250 ·
+month 57 · century 47 · season 42 · era 22 · range 9 · unknown 3. A timestamp
+would force precision the source doesn't have.
+
+`source_refs` holds resolved `@chapter/<id>` / `@story/<id>` tokens — the AP-2
+vocabulary `entity_relations.source_refs` already uses — so a timeline event is
+citable on a clue board as `@timeline/<id>` with **no schema at all**;
+`correlation_member_refs` (033) is generic over `@word/digits`, so only
+`lib/references.ts` had to learn the type. `refs` (JSONB) keeps every parsed
+citation including unresolvable ones: an unresolvable citation is still
+evidence, and dropping it would make a row look uncited.
+
+Coverage is partial by nature — roughly 440 of 2080 chapters get a date (main
+story dense, 干员密录 sparse). Filling the rest is AP-30's job, with relative
+`precedes`/`causes` edges rather than guessed dates. UI: `/timeline`.
 
 **Clue board — one node type** (`033`): a board node is **text + an optional
 image**, nothing else. Evidence is not pinned as its own node; it's cited

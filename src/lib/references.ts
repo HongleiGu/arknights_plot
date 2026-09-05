@@ -25,7 +25,9 @@ export const REF_TYPE_COL: Record<string, string> = {
   item: 'item_id',
 }
 
-const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|entity|enemy|item|user)\/(\d+)/g
+// `timeline` has no correlation_members column and needs none: board citations
+// go through correlation_member_refs (033), which is generic over @word/digits.
+const REF_RE = /@(story|chapter|node|gadget|event|option|text|furniture|entity|enemy|item|timeline|user)\/(\d+)/g
 
 export interface ReferenceData {
   key: string            // "node/68725"
@@ -83,14 +85,16 @@ export async function resolveReferences(
   ])
   // World-graph entities (026) and the global catalogs (037) — none of these
   // have a story parent, so they skip the stage-2/3 parent resolution entirely.
-  const [entitiesD, enemiesD, itemsD] = await Promise.all([
+  const [entitiesD, enemiesD, itemsD, timelineD] = await Promise.all([
     fetchByIds('entities', 'id, type, name, name_en, summary, mention_count', idsOf('entity')),
     fetchByIds('enemies', 'id, name, code, description, kind, rank, debut', idsOf('enemy')),
     fetchByIds('items', 'id, name, description, usage_text, rarity, item_group', idsOf('item')),
+    fetchByIds('timeline_events', 'id, date_label, year, precision, description', idsOf('timeline')),
   ])
   const entityMap = new Map(entitiesD.map(e => [e.id as number, e]))
   const enemyMap = new Map(enemiesD.map(e => [e.id as number, e]))
   const itemMap = new Map(itemsD.map(i => [i.id as number, i]))
+  const timelineMap = new Map(timelineD.map(t => [t.id as number, t]))
 
   // Stage 2 — parents of the above.
   const extraChapterIds = nodes.map(n => n.chapter_id as number).filter(id => !idsOf('chapter').includes(id))
@@ -189,6 +193,13 @@ export async function resolveReferences(
       const preview = trunc((i.description as string) || (i.usage_text as string))
         ?? ([i.rarity != null ? `★${i.rarity}` : null, i.item_group].filter(Boolean).join(' · ') || null)
       push(i.name as string, `/items/${i.id}`, preview)
+    } else if (r.type === 'timeline') {
+      const t = timelineMap.get(r.id); if (!t) continue
+      // The label is the date, not the description: a timeline chip is only
+      // useful inline if it says *when*. The what goes in the preview.
+      const when = (t.date_label as string)
+        || (t.year != null ? `${t.year as number} 年` : null)
+      push(when || '年表', `/timeline#e${t.id}`, trunc(t.description as string, 160))
     } else if (r.type === 'entity') {
       const e = entityMap.get(r.id); if (!e) continue
       const preview = trunc(e.summary as string)

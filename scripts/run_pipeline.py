@@ -80,6 +80,12 @@ STEPS = [
     ("senemy",   "scrape_enemies.py",           lambda a: ["--force"] if a.force else [], True),
     ("sitem",    "scrape_items.py",             lambda a: ["--force"] if a.force else [], True),
     ("catalog",  "import_catalog.py",           lambda a: [],                             False),
+    # 泰拉年表 is a single page, so the scrape always re-fetches rather than
+    # carrying a marker — that IS its --sync behaviour: new entries land as the
+    # wiki gains them. The import must follow `parse`, since it resolves each
+    # citation against `chapters`.
+    ("stime",    "scrape_terra_timeline.py",    lambda a: [],                             True),
+    ("timeline", "import_timeline.py",          lambda a: [],                             False),
     ("wiki",     "import_wiki_descriptions.py", lambda a: [],                             False),
     ("pages",    "scrape_story_pages.py",       lambda a: [],                             False),
     ("upload",   "upload_story_images.py",      lambda a: [],                             False),
