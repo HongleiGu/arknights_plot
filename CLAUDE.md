@@ -59,6 +59,27 @@ Not pipeline steps: AI summaries (AP-23) and relation extraction (AP-22 P2)
 are admin actions in `/admin/ai`; run them separately for newly imported
 content. `--sync` prints a reminder.
 
+**Summary back-fill** (AP-29): `/admin/ai` → 摘要全量补齐 (`BacklogPanel`).
+It can't be a script — `aiGuard()` needs an authenticated admin session, so
+generation only runs inside the app. `runSummaryBatch()` processes one
+**time-boxed** slice (20s) and the client keeps asking for another, so no single
+request nears the serverless limit however slow the model is. Three properties
+make a ~1600-item run survivable, and all three were missing from the per-story
+panel that shipped with AP-23:
+- **the backlog query is the cursor** — anything already summarised is skipped,
+  so closing the tab is a pause, not a loss, and there's no job table to keep
+  consistent;
+- **a failed item is skipped, not fatal** — on a free, rate-limited model
+  "abort everything on one 429" means "never finishes";
+- **429 is a wait, not an error** — 20s backoff, doubling to 5min.
+
+Chapters run before stories, because a story summary is built from its
+chapters; the other order would summarise a half-empty set and then look done.
+**Chapters with a curated `chapter_descriptions` row count as done** and are
+never re-summarised — the wiki text is better than the model's, so spending
+tokens there would buy a worse result. That's why the real backlog was 1107
+chapters + 506 stories, not 2080 + 686.
+
 **Prereqs**
 - `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`
 - Migrations `001_core.sql` … `008_is_text.sql` applied

@@ -3,6 +3,7 @@ import { getBudgetOverview, listAiAccess } from '@/app/actions/budget'
 import BudgetForm from './BudgetForm'
 import AccessPanel from './AccessPanel'
 import SummariesPanel from './SummariesPanel'
+import BacklogPanel from './BacklogPanel'
 import RelationsPanel from './RelationsPanel'
 
 export const dynamic = 'force-dynamic'
@@ -51,6 +52,7 @@ export default async function AiBudgetPage() {
 
       <BudgetForm config={o.config} />
       <AccessPanel initial={access} />
+      <BacklogPanel />
       <SummariesPanel />
       <RelationsPanel />
     </div>
