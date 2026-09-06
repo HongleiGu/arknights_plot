@@ -144,6 +144,10 @@ def _stem(file_path: str) -> str:
 
 STAGE_TOKENS = re.compile(r"_(?:BEG|END|NBT|ENTRY|SP\d|剧情\d?)$")
 
+# "序章 黑暗时代·上" -> "黑暗时代·上". The wiki writes the chapter designation
+# into the link text; the story name is what follows it.
+CHAPTER_PREFIX = re.compile(r"^(?:序章|终章|第[一二三四五六七八九十百零〇\d]+章)\s*")
+
 
 def level_key(file_path: str) -> str:
     """
@@ -247,9 +251,19 @@ def resolve(ev: dict, story_by_id, story_by_name, by_basename, by_level, by_milv
             else:
                 # 3. a bare level page with no stage suffix  [[PA-ST-1 群氓]]
                 ch = pick_chapter(by_level.get(norm_key(p), []), hint)
+                # 4. the LINK TEXT names a story even though the target is a
+                #    wiki index page: [[剧情一览|序章 黑暗时代·上]]. Worth the
+                #    extra step — that idiom carries the 切尔诺伯格 arc, some of
+                #    the most-cited events on the page. Exact match only, after
+                #    dropping a chapter designation; no fuzzy matching, since a
+                #    wrong link reads as grounded.
+                lab_cands = story_by_name.get(norm_key(CHAPTER_PREFIX.sub("", r.get("label") or "")), [])
                 if ch:
                     add(f"@chapter/{ch['id']}")
                     stats["level_ok"] += 1
+                elif len(lab_cands) == 1:
+                    add(f"@story/{lab_cands[0]['id']}")
+                    stats["label_ok"] += 1
                 else:
                     stats[f"{kind}_ambiguous" if cands else f"{kind}_missing"] += 1
 
