@@ -91,6 +91,10 @@ STEPS = [
     # runs the scraper itself. Metadata alone is ~550 requests.
     ("scomic",   "scrape_comics.py",            lambda a: ["--no-pages"],                 True),
     ("comics",   "import_comics.py",            lambda a: [],                             False),
+    # Import only. OCR (ocr_book.py, ~3.6h) and structuring (structure_book.py)
+    # are standalone: they need a local scan, not the network, and are a
+    # one-time job. No-op when data/book_sections.json is absent.
+    ("book",     "import_book.py",              lambda a: [],                             False),
     ("wiki",     "import_wiki_descriptions.py", lambda a: [],                             False),
     ("pages",    "scrape_story_pages.py",       lambda a: [],                             False),
     ("upload",   "upload_story_images.py",      lambda a: [],                             False),
