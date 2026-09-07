@@ -1,24 +1,59 @@
 import Link from 'next/link'
+import { createClient } from '@/lib/supabase/server'
 
-// `href` overrides the default `/<id>` category route — the catalogs that
-// aren't a stories.category live on their own paths.
-const CATEGORIES: {
-  id: string; latin: string; name: string; desc: string; href?: string
-}[] = [
-  { id: '主线',     latin: 'MAIN STORY',     name: '主线剧情', desc: '罗德岛主线故事' },
-  { id: '支线',     latin: 'SIDE STORY',     name: '支线剧情', desc: '干员与势力的外传故事' },
-  { id: '故事集',   latin: 'STORY SET',      name: '故事集',   desc: '活动与特别故事' },
-  { id: '集成战略', latin: 'INTEGRATED STR.', name: '集成战略', desc: '集成战略随机剧情' },
-  { id: '生息演算', latin: 'RECLAMATION',    name: '生息演算', desc: '生息演算剧情' },
-  { id: '特殊',     latin: 'SPECIAL',        name: '特殊剧情', desc: '隐藏与特殊内容' },
-  { id: '干员',     latin: 'OPERATOR',       name: '干员密录', desc: '干员个人故事档案' },
-  { id: '家具',     latin: 'FURNITURE',      name: '家具图鉴', desc: '基建家具与装饰主题' },
-  { id: '敌人',     latin: 'ENEMY',          name: '敌人图鉴', desc: '敌方单位与描述', href: '/enemies' },
-  { id: '道具',     latin: 'ITEM',           name: '道具图鉴', desc: '材料、信物与凭证', href: '/items' },
-  { id: '年表',     latin: 'TIMELINE',       name: '泰拉年表', desc: '按时间排布的事件', href: '/timeline' },
+export const dynamic = 'force-dynamic'
+
+// Labels for the categories we know about. This is presentation only — the
+// LIST comes from the database, because a hardcoded list silently hides new
+// content: 四月辑录, 漫画 and 大地巡旅 all had working routes for weeks while
+// being unreachable from here. An unknown category now shows up with its own
+// name rather than not at all.
+const META: Record<string, { latin: string; name: string; desc: string }> = {
+  '主线':     { latin: 'MAIN STORY',      name: '主线剧情', desc: '罗德岛主线故事' },
+  '支线':     { latin: 'SIDE STORY',      name: '支线剧情', desc: '干员与势力的外传故事' },
+  '故事集':   { latin: 'STORY SET',       name: '故事集',   desc: '活动与特别故事' },
+  '集成战略': { latin: 'INTEGRATED STR.', name: '集成战略', desc: '集成战略随机剧情' },
+  '生息演算': { latin: 'RECLAMATION',     name: '生息演算', desc: '生息演算剧情' },
+  '四月辑录': { latin: 'APRIL RECORDS',   name: '四月辑录', desc: '愚人节特别篇' },
+  '特殊':     { latin: 'SPECIAL',         name: '特殊剧情', desc: '隐藏与特殊内容' },
+  '干员':     { latin: 'OPERATOR',        name: '干员密录', desc: '干员个人故事档案' },
+  '漫画':     { latin: 'COMIC',           name: '泰拉记事社', desc: '官方漫画与短篇' },
+  '大地巡旅': { latin: 'TERRA: A JOURNEY', name: '大地巡旅', desc: '官方世界观设定集' },
+}
+
+// Reading order for the ones we have an opinion about; anything else follows.
+const ORDER = ['主线', '支线', '故事集', '集成战略', '生息演算', '四月辑录',
+               '特殊', '干员', '漫画', '大地巡旅']
+
+// Catalogs that are not a stories.category and live on their own routes.
+const EXTRA = [
+  { id: '家具', latin: 'FURNITURE', name: '家具图鉴', desc: '基建家具与装饰主题', href: '/家具' },
+  { id: '敌人', latin: 'ENEMY',     name: '敌人图鉴', desc: '敌方单位与描述',     href: '/enemies' },
+  { id: '道具', latin: 'ITEM',      name: '道具图鉴', desc: '材料、信物与凭证',   href: '/items' },
+  { id: '年表', latin: 'TIMELINE',  name: '泰拉年表', desc: '按时间排布的事件',   href: '/timeline' },
 ]
 
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = await createClient()
+  const { data } = await supabase.from('stories').select('category').limit(2000)
+  const present = [...new Set((data ?? []).map(r => r.category as string))]
+    .filter(c => c !== '家具')          // has its own catalog route in EXTRA
+    .sort((a, b) => {
+      const ai = ORDER.indexOf(a), bi = ORDER.indexOf(b)
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi)
+    })
+
+  const CATEGORIES = [
+    ...present.map(id => ({
+      id,
+      latin: META[id]?.latin ?? id,
+      name: META[id]?.name ?? id,
+      desc: META[id]?.desc ?? '',
+      href: undefined as string | undefined,
+    })),
+    ...EXTRA,
+  ]
+
   return (
     <div className="min-h-[calc(100vh-3.5rem-1.75rem)] flex flex-col">
       {/* Hero */}

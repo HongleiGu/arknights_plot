@@ -313,8 +313,20 @@ export default async function ChapterPage({ params, searchParams }: Props) {
             </li>
           ))}
           {nodeList.length === 0 && (
+            // A comic episode legitimately has no text yet — its 526 chapters
+            // are metadata only until panel OCR lands (AP-33). Saying "no
+            // nodes" there reads as a bug rather than as pending work.
             <li className="font-mono text-xs text-ark-muted tracking-widest">
-              {'// no nodes on this page'}
+              {category === '漫画' ? (
+                <>
+                  {'// 本篇为漫画，分镜文字尚未导入 · '}
+                  <a href="https://terra-historicus.hypergryph.com/"
+                     target="_blank" rel="noopener noreferrer"
+                     className="text-ark-accent hover:underline">
+                    前往泰拉记事社阅读 ↗
+                  </a>
+                </>
+              ) : '// no nodes on this page'}
             </li>
           )}
         </ol>
