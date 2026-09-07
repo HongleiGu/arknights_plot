@@ -86,6 +86,11 @@ STEPS = [
     # citation against `chapters`.
     ("stime",    "scrape_terra_timeline.py",    lambda a: [],                             True),
     ("timeline", "import_timeline.py",          lambda a: [],                             False),
+    # 泰拉记事社 comics. --no-pages here on purpose: the per-page signed image
+    # URLs are ~4800 extra requests that only AP-33 (panel OCR) needs, and it
+    # runs the scraper itself. Metadata alone is ~550 requests.
+    ("scomic",   "scrape_comics.py",            lambda a: ["--no-pages"],                 True),
+    ("comics",   "import_comics.py",            lambda a: [],                             False),
     ("wiki",     "import_wiki_descriptions.py", lambda a: [],                             False),
     ("pages",    "scrape_story_pages.py",       lambda a: [],                             False),
     ("upload",   "upload_story_images.py",      lambda a: [],                             False),
