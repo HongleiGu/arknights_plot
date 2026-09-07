@@ -245,9 +245,18 @@ def resolve(ev: dict, story_by_id, story_by_name, by_basename, by_level, by_milv
             # 2. a story's sub-page          [[孤星/综合调查数据库#邮件]]
             if not cands and "/" in p:
                 cands = story_by_name.get(norm_key(p.split("/", 1)[0]), [])
+            # 3. the SECTION names a story. 情报处理室 and 泰拉记事 are index
+            #    pages whose sections are the stories themselves
+            #    ([[情报处理室#火蓝之心]]), so the anchor is the real target.
+            #    Checked after the sub-page rule so 孤星/综合调查数据库#邮件
+            #    still resolves to 孤星 rather than looking up "邮件".
+            via_section = False
+            if not cands and r.get("section"):
+                cands = story_by_name.get(norm_key(r["section"]), [])
+                via_section = bool(cands)
             if len(cands) == 1:
                 add(f"@story/{cands[0]['id']}")
-                stats[f"{kind}_ok"] += 1
+                stats["section_ok" if via_section else f"{kind}_ok"] += 1
             else:
                 # 3. a bare level page with no stage suffix  [[PA-ST-1 群氓]]
                 ch = pick_chapter(by_level.get(norm_key(p), []), hint)
