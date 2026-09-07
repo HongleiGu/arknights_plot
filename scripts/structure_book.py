@@ -1,6 +1,6 @@
 """
 Turn the per-page OCR (scripts/ocr_book.py) into a chapter/section outline with
-text, ready for scripts/import_book.py to load as text_clusters/text_chunks.
+text, ready for scripts/import_book.py to load as stories/chapters/nodes.
 
     data/book_ocr/p*.json  ->  data/book_sections.json
 
@@ -18,8 +18,12 @@ lands between the marker and the title (`CHAPTER 6.6` -> `38` -> `太阳谷机�
 and the English title is a separate block from the Chinese one.
 
 Everything between one marker and the next belongs to that section, one chunk
-per printed page — which keeps the page number, and the page number is how a
-citation to a physical book is checked.
+per PARAGRAPH, each tagged with the printed page it began on — the page number
+is how a claim gets checked against a physical copy, and nothing else records it.
+
+The six top-level chapters come from the contents spread (`find_toc`), so the
+book maps onto the existing content model with no new schema: chapter -> story,
+section -> chapter, paragraph -> node.
 
 This pass is deliberately still deterministic. No model is involved: the OCR's
 remaining character errors (mostly proper nouns in 凯尔希's handwritten 批注)
@@ -57,17 +61,26 @@ TOC_PAGES = {6, 7}
 # that absence is what distinguishes an interlude from a numbered chapter —
 # and then reading the heading off each run's first page. The numbering follows
 # 泰拉年表's own citations, which call the first of these 「6.Extra 罗德岛」.
+# (number, title, title_en, page, owning chapter). 6.Extra sits inside chapter
+# 6 the way the wiki cites it; the closing three belong to no numbered chapter,
+# so they become one section each under a synthetic 附录.
 EXTRA_SECTIONS = [
-    ("6.Extra", "罗德岛生活指南", "RHODES ISLAND",  401),
-    ("后记",     "后记",          "POSTFACE",       431),
-    ("档案归档", "档案归档",       None,             443),
-    ("感谢名单", "感谢名单",       "SPECIAL THANKS", 450),
+    ("6.Extra", "罗德岛生活指南", "RHODES ISLAND",  401, "6"),
+    ("后记",     "后记",          "POSTFACE",       431, "附录"),
+    ("档案归档", "档案归档",       None,             443, "附录"),
+    ("感谢名单", "感谢名单",       "SPECIAL THANKS", 450, "附录"),
 ]
+
+# The book's six top-level chapters, read off the contents spread. Each becomes
+# a `stories` row; every section under it becomes a `chapters` row.
+APPENDIX = {"number": "附录", "title": "附录", "title_en": "APPENDIX"}
 
 MARKER = re.compile(r"^CHAPTER\s*([0-9]+(?:\.[0-9A-Za-z]+)*)\s*(.*)$", re.I)
 # A block that is only digits is a stray folio fragment, not a title.
 FOLIO   = re.compile(r"^[\d\s.]+$")
 LATIN   = re.compile(r"^[A-Za-z0-9\s,.'&/:\-—()]+$")
+# Terminal punctuation: a line ending in one of these ends a paragraph.
+SENTENCE_END = set("。！？；…”』」）》!?.")
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
@@ -77,10 +90,54 @@ def load_pages() -> list[dict]:
     pages = []
     for f in sorted(OCR_DIR.glob("p*.json")):
         d = json.loads(f.read_text(encoding="utf-8"))
-        d["body"] = [b["text"].strip() for b in d["blocks"]
-                     if b["tag"] == "body" and b["text"].strip()]
+        d["blocks"] = [b for b in d["blocks"]
+                       if b["tag"] == "body" and b["text"].strip()]
+        d["body"] = [b["text"].strip() for b in d["blocks"]]
         pages.append(d)
     return pages
+
+
+def paragraphs(blocks: list[dict]) -> list[str]:
+    """
+    Join typeset lines back into paragraphs.
+
+    A typeset line break carries no meaning, so without this every line becomes
+    its own paragraph and the prose reads as fragments.
+
+    Terminal punctuation is the signal, not the printed indent. The indent is
+    the obvious candidate — Chinese typography indents a first line by two
+    characters — but it does not work in this book: the body indent lands at
+    almost exactly the left edge of the indented pull-quote boxes, so an
+    identical x0 means "new paragraph" in one place and "continuation" in
+    another. A justified line that breaks mid-sentence, by contrast, always
+    ends on no punctuation.
+
+    Geometry is still used for one thing: a large horizontal jump is a hard
+    break (a different column or text box) whatever the punctuation did.
+    """
+    out: list[str] = []
+    prev_x0: float | None = None
+    for b in blocks:
+        text = b["text"].strip()
+        if not text:
+            continue
+        cw = (b["x1"] - b["x0"]) / max(len(text), 1)
+        prev = out[-1] if out else ""
+        # A justified line that breaks mid-sentence ends on no punctuation, so
+        # the punctuation is the paragraph marker. Geometry cannot do this job
+        # in this book: the body's two-character indent lands at almost exactly
+        # the left edge of the indented pull-quote boxes, so the same x0 means
+        # "new paragraph" in one place and "same paragraph" in another.
+        continues = bool(prev) and prev[-1] not in SENTENCE_END
+        # A large horizontal jump is still a hard break — a different column or
+        # text box, regardless of how the previous line happened to end.
+        jumped = prev_x0 is not None and abs(b["x0"] - prev_x0) > cw * 6
+        if continues and not jumped:
+            out[-1] += text                      # continuation (no space: CJK)
+        else:
+            out.append(text)
+        prev_x0 = b["x0"]
+    return out
 
 
 def find_markers(pages: list[dict]) -> list[dict]:
@@ -105,7 +162,7 @@ def find_markers(pages: list[dict]) -> list[dict]:
             })
 
     by_page = {p["page"]: p for p in pages}
-    for number, title, title_en, page in EXTRA_SECTIONS:
+    for number, title, title_en, page, chapter in EXTRA_SECTIONS:
         p = by_page.get(page)
         if not p:
             log.warning(f"  extra section {number}: page {page} not OCR'd")
@@ -113,9 +170,28 @@ def find_markers(pages: list[dict]) -> list[dict]:
         # Drop the heading from the body the same way a marked section does.
         line = p["body"].index(title) if title in p["body"] else -1
         out.append({"number": number, "title": title, "title_en": title_en,
-                    "page": page, "line": line})
+                    "page": page, "line": line, "chapter": chapter})
 
     out.sort(key=lambda m: (m["page"], m["line"]))
+    return out
+
+
+def find_toc(pages: list[dict]) -> list[dict]:
+    """The six top-level chapters, from the contents spread."""
+    out = []
+    for p in pages:
+        if p["page"] not in TOC_PAGES:
+            continue
+        for i, line in enumerate(p["body"]):
+            m = MARKER.match(line)
+            if not m or "." in m.group(1):
+                continue
+            rest = [x for x in p["body"][i + 1:i + 4] if not FOLIO.match(x)]
+            out.append({
+                "number": m.group(1),
+                "title": m.group(2).strip() or None,
+                "title_en": next((x for x in rest if LATIN.match(x)), None),
+            })
     return out
 
 
@@ -145,23 +221,28 @@ def main() -> None:
             p = by_page.get(pno)
             if not p:
                 continue
-            lines = list(p["body"])
+            blocks = list(p["blocks"])
             # Drop the marker and the two title lines from the opening page so
             # the section body doesn't repeat its own heading.
             if pno == start and mk["line"] >= 0:
                 drop = {mk["line"]}
                 for j in (mk["line"] + 1, mk["line"] + 2):
-                    if j < len(lines) and lines[j] in (mk["title"], mk["title_en"]):
+                    if j < len(blocks) and blocks[j]["text"].strip() in (
+                            mk["title"], mk["title_en"]):
                         drop.add(j)
-                lines = [x for j, x in enumerate(lines) if j not in drop]
-            text = "\n".join(lines).strip()
-            if text:
-                chunks.append({"page": pno, "text": text})
+                blocks = [b for j, b in enumerate(blocks) if j not in drop]
+            # One chunk per PARAGRAPH, each tagged with the printed page it
+            # started on — the page number is the audit trail back to a
+            # physical copy, and nothing else records it.
+            for para in paragraphs(blocks):
+                if para.strip():
+                    chunks.append({"page": pno, "text": para.strip()})
 
         sections.append({
             "number": mk["number"],
-            # Top-level ("5") vs a section within it ("5.10.1").
-            "chapter": mk["number"].split(".")[0],
+            # Top-level ("5") vs a section within it ("5.10.1"). EXTRA_SECTIONS
+            # carry their own, since 后记 has no number to split.
+            "chapter": mk.get("chapter") or mk["number"].split(".")[0],
             "depth": mk["number"].count(".") + 1,
             "title": mk["title"],
             "title_en": mk["title_en"],
@@ -175,10 +256,24 @@ def main() -> None:
     orphan = [p["page"] for p in pages
               if p["page"] not in covered and len("".join(p["body"])) > 30]
 
+    # Top-level chapters, from the contents spread, plus the synthetic 附录 for
+    # the closing sections that belong to no numbered chapter. Only chapters
+    # that actually own a section are emitted, so a TOC misread can't create an
+    # empty story.
+    used = {s["chapter"] for s in sections}
+    chapters = [c for c in find_toc(pages) if c["number"] in used]
+    if "附录" in used:
+        chapters.append(APPENDIX)
+    missing = used - {c["number"] for c in chapters}
+    if missing:
+        log.warning(f"  sections whose chapter is not in the contents: {sorted(missing)}")
+        chapters += [{"number": n, "title": n, "title_en": None} for n in sorted(missing)]
+
     Path(args.out).write_text(json.dumps({
         "title": BOOK_TITLE,
         "title_en": BOOK_TITLE_EN,
         "pages": len(pages),
+        "chapters": chapters,
         "sections": sections,
         # Front matter before the first marker — kept visible rather than
         # silently dropped, so a coverage gap is a number you can look at.
