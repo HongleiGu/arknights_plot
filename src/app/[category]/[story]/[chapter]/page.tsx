@@ -5,6 +5,7 @@ import CommentThread from '@/components/CommentThread'
 import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
 import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
 import { boardBacklinks, type Backlink } from '@/app/actions/boards'
+import { bookImageUrl } from '@/lib/storage'
 
 const PAGE_SIZE = 100
 
@@ -303,6 +304,18 @@ export default async function ChapterPage({ params, searchParams }: Props) {
           )}
         </div>
 
+        {/* 大地巡旅 is machine-read from a scan, not a proofread edition. The
+            note sits above the text rather than in a footer because a reader
+            quoting a line needs to know before they quote it, not after. */}
+        {category === '大地巡旅' && (
+          <p className="border-l-2 border-ark-accent-dim bg-ark-surface/40 px-3 py-2 mb-6
+                        text-xs text-ark-muted leading-relaxed">
+            本篇由设定集扫描件 <strong className="text-ark-text font-normal">OCR</strong> 得到，
+            可能存在识别错误（凯尔希的手写批注尤其容易出错），非官方校订版本。
+            引用前请对照原书核对。
+          </p>
+        )}
+
         {/* Node list */}
         <ol className="space-y-2">
           {nodeList.map(n => (
@@ -464,12 +477,34 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   }
 
   if (node.type === 'cgitem') {
+    // 大地巡旅 plates carry an image_sha1 in raw_params (cropped from the scan
+    // by mineru_book.py). AVG cgitem rows don't, and keep the placeholder —
+    // there is no asset behind those.
+    const sha1 = (node.raw_params as { image_sha1?: string } | null)?.image_sha1
+    const page = (node.raw_params as { page?: number } | null)?.page
+    const src = bookImageUrl(sha1)
     return (
       <div className="flex gap-3 py-1.5">
         {gutter}
-        <p className="flex-1 font-mono text-[10px] text-ark-border tracking-widest uppercase">
-          [ CG ]
-        </p>
+        {src ? (
+          <figure className="flex-1 my-2">
+            {/* Plain <img>: these are arbitrary-aspect crops from a scan, and
+                next/image would need a width/height we don't store. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt={page ? `插图 · 第 ${page} 页` : '插图'}
+                 loading="lazy"
+                 className="max-w-full border border-ark-border bg-ark-surface" />
+            {page && (
+              <figcaption className="font-mono text-[10px] text-ark-border tracking-widest mt-1">
+                {'// P'}{page}
+              </figcaption>
+            )}
+          </figure>
+        ) : (
+          <p className="flex-1 font-mono text-[10px] text-ark-border tracking-widest uppercase">
+            [ CG ]
+          </p>
+        )}
       </div>
     )
   }

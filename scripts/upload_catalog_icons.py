@@ -47,11 +47,19 @@ log = logging.getLogger("icons")
 KINDS = {
     "enemies": (DATA / "enemy-icons", "enemy-icons", DATA / "enemies.json"),
     "items":   (DATA / "item-icons",  "item-icons",  DATA / "items.json"),
+    # 大地巡旅 plates cropped by mineru_book.py. No manifest: the sha1 is
+    # derived from the path at import time, so there is no list to check
+    # against — every cropped file is referenced by construction.
+    "book":    (DATA / "book-images", "book-images", None),
 }
 
 
-def referenced_sha1s(manifest: Path) -> set[str] | None:
+def referenced_sha1s(manifest: Path | None) -> set[str] | None:
     """icon_sha1 values the catalog actually points at, or None if unknown.
+
+    A kind with no manifest (book plates) returns None and uploads everything:
+    those files are generated with their sha1 derived from the path, so every
+    one of them is referenced by construction and there is no list to check.
 
     Uploading the whole directory would be wrong: an earlier version of
     scrape_enemies took the first [[文件:]] on the page, which is the AVG story
@@ -59,7 +67,7 @@ def referenced_sha1s(manifest: Path) -> set[str] | None:
     real portrait, and referenced by nothing. Filtering by the manifest means
     stale downloads can sit there harmlessly instead of being pushed to R2.
     """
-    if not manifest.exists():
+    if manifest is None or not manifest.exists():
         return None
     try:
         rows = json.loads(manifest.read_text(encoding="utf-8"))

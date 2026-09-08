@@ -26,6 +26,14 @@ export function storyImageUrl(kind: StoryImageKind, sha1: string | null | undefi
   return `${R2}/${SUBDIR[kind]}/${sha1}.png`
 }
 
+/** A 大地巡旅 illustration → public URL (book-images/<sha1>.png).
+ *  The sha1 is of the data/-relative path, computed at import time, so it is
+ *  known before the file is uploaded. */
+export function bookImageUrl(sha1: string | null | undefined): string | null {
+  if (!sha1) return null
+  return `${R2}/book-images/${sha1}.png`
+}
+
 /** gadgets.icon_sha1 → public URL (gadget-icons/<sha1>.png). */
 export function gadgetIconUrl(sha1: string | null | undefined): string | null {
   if (!sha1) return null

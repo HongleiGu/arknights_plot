@@ -46,3 +46,7 @@ next-env.d.ts
 /.next
 /.claude
 /public
+# MinerU export of the settings-book scan (derived from a commercial book,
+# same posture as /data — regenerate with the website export + mineru_book.py)
+/大地巡旅
+大地巡旅*.pdf

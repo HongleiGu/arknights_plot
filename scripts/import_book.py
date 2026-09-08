@@ -49,6 +49,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -69,6 +70,13 @@ BOOK_JSON = ROOT / "data" / "book_sections.json"
 CATEGORY = "大地巡旅"
 # The first cut of this import; removed so the book does not exist twice.
 LEGACY_CATEGORY = "设定集"
+
+# Carried on every story row so the provenance travels with the content rather
+# than living only in a UI banner someone might later remove. The text is
+# machine-read from a scan and is known to contain errors — see
+# scripts/check_book_ocr.py for the review list.
+OCR_NOTE = ("本篇文本由《大地巡旅：〈明日方舟〉官方世界观设定集》扫描件 OCR 得到，"
+            "可能存在识别错误（尤其是凯尔希的手写批注），非官方校订版本。")
 
 load_dotenv(ROOT / ".env")
 
@@ -139,7 +147,7 @@ def main() -> None:
         "category": CATEGORY,
         "name": c["title"] or c["number"],
         "name_en": c["title_en"] or c["title"] or c["number"],
-        "description": None,
+        "description": OCR_NOTE,
         "arc": doc["title"],
         "seq": i + 1,
     } for i, c in enumerate(chapters)]
@@ -185,6 +193,27 @@ def main() -> None:
         if not cid:
             continue
         for i, c in enumerate(s["chunks"], 1):
+            if c.get("image"):
+                # An illustration. `cgitem` already exists in the nodes type
+                # CHECK for exactly this — a non-dialogue visual — so the book's
+                # plates need no schema of their own. The sha1 is the same
+                # convention every other asset uses (sha1 of the data/-relative
+                # path), which means it can be computed here without the upload
+                # having happened yet.
+                rel = f"book-images/{c['image']}"
+                node_rows.append({
+                    "chapter_id": cid,
+                    "seq": i,
+                    "type": "cgitem",
+                    "speaker": None,
+                    "content": None,
+                    "raw_params": {
+                        "page": c["page"], "source": "mineru",
+                        "image": c["image"], "kind": c.get("kind"),
+                        "image_sha1": hashlib.sha1(rel.encode("utf-8")).hexdigest(),
+                    },
+                })
+                continue
             node_rows.append({
                 "chapter_id": cid,
                 "seq": i,
@@ -192,7 +221,8 @@ def main() -> None:
                 "speaker": "narrator",
                 "content": c["text"],
                 # seq is paragraph order; the printed page lives here or nowhere.
-                "raw_params": {"page": c["page"], "source": "ocr"},
+                "raw_params": {"page": c["page"], "source": "mineru",
+                               **({"heading": True} if c.get("heading") else {})},
             })
 
     done = 0
