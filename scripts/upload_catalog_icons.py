@@ -123,14 +123,21 @@ def main() -> None:
         wanted = referenced_sha1s(manifest)
         files = [f for f in sorted(src.rglob("*")) if f.is_file()]
         if wanted is None:
-            log.warning(f"{alias}: no readable {manifest.name} — uploading every file "
-                        f"in the directory, which may include stale downloads")
+            # No manifest is expected for book plates (every file is referenced
+            # by construction); for the catalogs it means the manifest is
+            # missing or unreadable, which is worth warning about.
+            if manifest is None:
+                log.info(f"{alias}: no manifest by design — uploading all {len(files)} file(s)")
+            else:
+                log.warning(f"{alias}: no readable {manifest.name} — uploading every file "
+                            f"in the directory, which may include stale downloads")
             keep = files
         else:
             keep = [f for f in files if sha1_for(f.relative_to(DATA)) in wanted]
         skipped = len(files) - len(keep)
         log.info(f"{alias}: {len(keep)} of {len(files)} file(s) referenced by "
-                 f"{manifest.name}" + (f"; skipping {skipped} unreferenced" if skipped else ""))
+                 f"{manifest.name if manifest else 'construction'}"
+                 + (f"; skipping {skipped} unreferenced" if skipped else ""))
         for i, f in enumerate(keep, 1):
             key = f"{prefix}/{sha1_for(f.relative_to(DATA))}.png"
             if args.dry_run:
