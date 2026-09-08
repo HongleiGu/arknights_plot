@@ -128,11 +128,40 @@ def load_pages() -> list[dict]:
             pages.append({
                 "page": offset + p["page_idx"],
                 "page_size": p.get("page_size"),
-                "blocks": p.get("para_blocks", []),
+                "blocks": ordered(p.get("para_blocks", [])),
             })
         log.info(f"  {f.name[-18:]}: {len(info)} pages → {offset}..{offset + len(info) - 1}")
         offset += len(info)
     return pages
+
+
+def caption_of(b: dict) -> str | None:
+    """
+    The caption/footnote printed with an illustration.
+
+    MinerU nests these under the image block as `image_caption` /
+    `image_footnote` (101 of them across the book — plate labels like 未活性化).
+    They are not `text` blocks, so a loop that only reads text/title/table
+    silently drops every one, and the label ends up attached to nothing.
+    """
+    parts = []
+    for sub in (b.get("blocks") or []):
+        if "caption" in (sub.get("type") or "") or "footnote" in (sub.get("type") or ""):
+            t = block_text(sub)
+            if t:
+                parts.append(t)
+    return " ".join(parts) or None
+
+
+def ordered(blocks: list[dict]) -> list[dict]:
+    """
+    Blocks in MinerU's own reading order.
+
+    Every block carries an explicit `index`; array order usually matches it but
+    is not guaranteed to, and the index is the model's actual answer for where
+    a block belongs in the flow.
+    """
+    return sorted(blocks, key=lambda b: (b.get("index") if b.get("index") is not None else 1e9))
 
 
 def crop_images(pages: list[dict], pdf: Path) -> dict[int, list[dict]]:
@@ -143,8 +172,20 @@ def crop_images(pages: list[dict], pdf: Path) -> dict[int, list[dict]]:
     out: dict[int, list[dict]] = {}
     with tempfile.TemporaryDirectory() as tmp:
         for p in pages:
-            regions = [b for b in p["blocks"] if b.get("type") in ("image", "chart")]
+            regions = [b for b in ordered(p["blocks"]) if b.get("type") in ("image", "chart")]
             if not regions:
+                continue
+            # Skip the page render when every crop is already on disk. Rendering
+            # 453 pages to re-cut identical PNGs costs ~25 minutes and changes
+            # nothing, so a metadata-only re-run (new captions, new ordering)
+            # stays cheap.
+            names = [f"p{p['page']:04d}_{i:02d}.png" for i in range(1, len(regions) + 1)]
+            if all((IMG_DIR / n).exists() for n in names):
+                for b, n in zip(regions, names):
+                    out.setdefault(p["page"], []).append({
+                        "file": n, "kind": b["type"], "bbox": b["bbox"],
+                        "caption": caption_of(b), "index": b.get("index"),
+                    })
                 continue
             prefix = Path(tmp) / "pg"
             subprocess.run(
@@ -168,6 +209,8 @@ def crop_images(pages: list[dict], pdf: Path) -> dict[int, list[dict]]:
                     im.crop(box).save(IMG_DIR / name)
                     out.setdefault(p["page"], []).append({
                         "file": name, "kind": b["type"], "bbox": b["bbox"],
+                        "caption": caption_of(b),
+                        "index": b.get("index"),
                     })
             hits[0].unlink(missing_ok=True)
     return out
@@ -245,6 +288,8 @@ def main() -> None:
             p = by_page.get(pno)
             if not p:
                 continue
+            by_index = {a.get("index"): a for a in assets.get(pno, [])}
+            used_assets: set = set()
             for i, b in enumerate(p["blocks"]):
                 if pno == start and i == mk["block"]:
                     continue                       # the heading itself
@@ -254,8 +299,19 @@ def main() -> None:
                     if t:
                         chunks.append({"page": pno, "text": t,
                                        "heading": kind == "title"})
+                elif kind in ("image", "chart"):
+                    # Placed at its own position in the flow, not appended after
+                    # the page's text — an illustration sits between the
+                    # paragraphs it belongs with, and its caption travels on it.
+                    a = by_index.get(b.get("index"))
+                    if a:
+                        used_assets.add(a["file"])
+                        chunks.append({"page": pno, "image": a["file"],
+                                       "kind": a["kind"], "caption": a.get("caption")})
             for a in assets.get(pno, []):
-                chunks.append({"page": pno, "image": a["file"], "kind": a["kind"]})
+                if a["file"] not in used_assets:
+                    chunks.append({"page": pno, "image": a["file"],
+                                   "kind": a["kind"], "caption": a.get("caption")})
 
         sections.append({
             "number": mk["number"], "chapter": mk["chapter"],

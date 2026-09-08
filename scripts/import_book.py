@@ -210,6 +210,10 @@ def main() -> None:
                     "raw_params": {
                         "page": c["page"], "source": "mineru",
                         "image": c["image"], "kind": c.get("kind"),
+                        # The plate's printed label. MinerU nests it under the
+                        # image block, so it belongs to the illustration rather
+                        # than to the surrounding prose.
+                        **({"caption": c["caption"]} if c.get("caption") else {}),
                         "image_sha1": hashlib.sha1(rel.encode("utf-8")).hexdigest(),
                     },
                 })

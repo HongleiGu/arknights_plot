@@ -482,6 +482,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
     // there is no asset behind those.
     const sha1 = (node.raw_params as { image_sha1?: string } | null)?.image_sha1
     const page = (node.raw_params as { page?: number } | null)?.page
+    const caption = (node.raw_params as { caption?: string } | null)?.caption
     const src = bookImageUrl(sha1)
     return (
       <div className="flex gap-3 py-1.5">
@@ -494,9 +495,16 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
             <img src={src} alt={page ? `插图 · 第 ${page} 页` : '插图'}
                  loading="lazy"
                  className="max-w-full border border-ark-border bg-ark-surface" />
-            {page && (
-              <figcaption className="font-mono text-[10px] text-ark-border tracking-widest mt-1">
-                {'// P'}{page}
+            {(caption || page) && (
+              <figcaption className="mt-1">
+                {caption && (
+                  <span className="block text-xs text-ark-muted leading-relaxed">{caption}</span>
+                )}
+                {page && (
+                  <span className="block font-mono text-[10px] text-ark-border tracking-widest">
+                    {'// P'}{page}
+                  </span>
+                )}
               </figcaption>
             )}
           </figure>
