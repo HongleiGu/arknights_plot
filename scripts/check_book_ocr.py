@@ -1,7 +1,7 @@
 """
 Find likely OCR errors in the 大地巡旅 text by self-consistency (AP-31).
 
-    data/book_ocr/p*.json  ->  data/book_ocr_review.json
+    data/book_sections.json  ->  data/book_ocr_review.json
 
 Why not the two obvious detectors — both were tried and measured:
 
@@ -62,9 +62,10 @@ import logging
 import re
 from pathlib import Path
 
-ROOT     = Path(__file__).parent.parent
-OCR_DIR  = ROOT / "data" / "book_ocr"
-OUT_JSON = ROOT / "data" / "book_ocr_review.json"
+ROOT      = Path(__file__).parent.parent
+BOOK_JSON = ROOT / "data" / "book_sections.json"
+OCR_DIR   = ROOT / "data" / "book_ocr"          # legacy RapidOCR output
+OUT_JSON  = ROOT / "data" / "book_ocr_review.json"
 
 CJK = re.compile(r"[一-鿿]+")
 
@@ -81,6 +82,19 @@ log = logging.getLogger(__name__)
 
 
 def load_text() -> list[tuple[int, str]]:
+    """
+    The text that is actually imported, i.e. book_sections.json.
+
+    It reads that rather than the RapidOCR page dumps because those are no
+    longer the source: pointing the checker at superseded output produces a
+    review list for text nobody will ever see. The old dumps are the fallback
+    only so the script still runs if the MinerU build hasn't been made yet.
+    """
+    if BOOK_JSON.exists():
+        doc = json.loads(BOOK_JSON.read_text(encoding="utf-8"))
+        return [(c["page"], c["text"])
+                for s in (doc.get("sections") or [])
+                for c in s["chunks"] if c.get("text")]
     out = []
     for f in sorted(OCR_DIR.glob("p*.json")):
         d = json.loads(f.read_text(encoding="utf-8"))

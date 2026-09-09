@@ -58,6 +58,7 @@ from pathlib import Path
 
 ROOT       = Path(__file__).parent.parent
 MINERU_DIR = ROOT / "大地巡旅"
+CORRECTIONS = ROOT / "data" / "book_corrections.json"
 OUT_JSON   = ROOT / "data" / "book_sections.json"
 IMG_DIR    = ROOT / "data" / "book-images"
 
@@ -73,6 +74,17 @@ LATIN  = re.compile(r"^[A-Za-z0-9\s,.'&/:\-—()]+$")
 # begin a section rather than a sub-heading. Numbering follows 泰拉年表, which
 # cites the first as 「大地巡旅：6.Extra 罗德岛」.
 EXTRA_SECTIONS = [
+    # Front matter, which has no CHAPTER numbering at all and was therefore
+    # falling out of the book entirely as "orphan pages" — including 埃里克森's
+    # 前言 and 凯尔希's dedication, which are original prose, not boilerplate.
+    ("扉页", "扉页",        "TITLE PAGE",  1,  "卷首"),
+    ("献词", "献词",        "DEDICATION",  2,  "卷首"),
+    ("前言", "前言",        "PREFACE",     4,  "卷首"),
+    ("目录", "目录",        "CONTENTS",    6,  "卷首"),
+    # Top-level chapter dividers MinerU did not emit a marker for (same cause
+    # as chapter 4: the divider page is classified as an image).
+    ("1",  "源石，天灾，矿石病", "ORIGINIUM, CATASTROPHE, ORIPATHY", 9,   "1"),
+    ("6",  "组织",              "ORGANISATIONS IN TERRA",           355, "6"),
     # Chapter 4's divider page is classified as an image by MinerU, so its
     # CHAPTER 4 marker appears nowhere in the export and section "3" silently
     # swallowed all 28 pages of 泰拉种族. Page 87 is where RapidOCR found the
@@ -84,11 +96,49 @@ EXTRA_SECTIONS = [
     ("档案归档", "档案归档",       None,             443, "附录"),
     ("感谢名单", "感谢名单",       "SPECIAL THANKS", 450, "附录"),
 ]
+FRONT    = {"number": "卷首", "title": "卷首", "title_en": "FRONT MATTER"}
 APPENDIX = {"number": "附录", "title": "附录", "title_en": "APPENDIX"}
 TOC_PAGES = {6, 7}
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
+
+
+def load_corrections() -> list[dict]:
+    """
+    Hand-made text fixes, applied on the way out of the OCR.
+
+    This is where proofreading belongs, NOT in the database: `import_book.py`
+    deletes and re-inserts every chapter, so a row edited in Postgres is
+    destroyed by the next import with nothing to warn you. A correction here
+    survives re-imports, is diffable in git, is applied everywhere the same
+    mistake occurs, and can be re-derived if the OCR is ever redone with a
+    better model.
+
+    Each entry is {"wrong", "right", optional "note", optional "pages"}. A
+    correction that stops matching is reported rather than silently ignored —
+    that usually means the OCR improved and the entry is now stale.
+    """
+    if not CORRECTIONS.exists():
+        return []
+    try:
+        doc = json.loads(CORRECTIONS.read_text(encoding="utf-8"))
+    except Exception as e:                            # noqa: BLE001
+        log.warning(f"  {CORRECTIONS.name} unreadable ({type(e).__name__}); skipping")
+        return []
+    return [c for c in (doc.get("replacements") or []) if c.get("wrong")]
+
+
+def apply_corrections(text: str, page: int, corrections: list[dict],
+                      hits: dict[str, int]) -> str:
+    for c in corrections:
+        pages = c.get("pages")
+        if pages and page not in pages:
+            continue
+        if c["wrong"] in text:
+            hits[c["wrong"]] = hits.get(c["wrong"], 0) + text.count(c["wrong"])
+            text = text.replace(c["wrong"], c.get("right", ""))
+    return text
 
 
 def flat(b: dict) -> str:
@@ -276,6 +326,11 @@ def main() -> None:
     markers.sort(key=lambda m: (m["page"], m["block"]))
     log.info(f"{len(markers)} section marker(s)")
 
+    corrections = load_corrections()
+    fixed: dict[str, int] = {}
+    if corrections:
+        log.info(f"{len(corrections)} correction rule(s) from {CORRECTIONS.name}")
+
     by_page = {p["page"]: p for p in pages}
     sections = []
     for idx, mk in enumerate(markers):
@@ -297,6 +352,7 @@ def main() -> None:
                 if kind in ("text", "title", "table"):
                     t = block_text(b)
                     if t:
+                        t = apply_corrections(t, pno, corrections, fixed)
                         chunks.append({"page": pno, "text": t,
                                        "heading": kind == "title"})
                 elif kind in ("image", "chart"):
@@ -338,7 +394,9 @@ def main() -> None:
                             "title": (mm.group(1).strip() if mm else rest) or None,
                             "title_en": mm.group(2).strip() if mm else None})
     used = {s["chapter"] for s in sections}
-    chapters = [c for c in toc if c["number"] in used]
+    # 卷首 first, 附录 last — neither is in the contents spread, and both are
+    # ordinary reading order rather than an arbitrary choice.
+    chapters = ([FRONT] if "卷首" in used else []) + [c for c in toc if c["number"] in used]
     if "附录" in used:
         chapters.append(APPENDIX)
     missing = used - {c["number"] for c in chapters}
@@ -356,6 +414,13 @@ def main() -> None:
         "pages": len(pages), "chapters": chapters, "sections": sections,
         "orphan_pages": orphan,
     }, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    if corrections:
+        applied = sum(fixed.values())
+        stale = [c["wrong"] for c in corrections if c["wrong"] not in fixed]
+        log.info(f"applied {applied} correction(s) across {len(fixed)} rule(s)")
+        if stale:
+            log.warning(f"  {len(stale)} rule(s) matched nothing (stale?): {stale[:5]}")
 
     text_chunks = sum(1 for s in sections for c in s["chunks"] if c.get("text"))
     img_chunks = sum(1 for s in sections for c in s["chunks"] if c.get("image"))
