@@ -53,6 +53,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -68,6 +69,50 @@ ROOT      = Path(__file__).parent.parent
 BOOK_JSON = ROOT / "data" / "book_sections.json"
 
 CATEGORY = "大地巡旅"
+
+# --- page override serialisation (040) --------------------------------------
+# One printed page as plain text: blocks separated by a blank line, `#` marks a
+# heading, `[[img:file|caption]]` pins an illustration. The same format the
+# admin editor reads and writes — see 040_book_page_overrides.sql for why the
+# unit is a whole page rather than a chunk.
+IMG_LINE = re.compile(r"^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$")
+
+
+def page_to_text(chunks: list[dict]) -> str:
+    """Chunks -> the editable text for a page."""
+    out = []
+    for c in chunks:
+        if c.get("image"):
+            cap = c.get("caption")
+            out.append(f"[[img:{c['image']}" + (f"|{cap}" if cap else "") + "]]")
+        elif c.get("text"):
+            out.append(("# " if c.get("heading") else "") + c["text"])
+    return "\n\n".join(out)
+
+
+def text_to_page(body: str, page: int) -> list[dict]:
+    """The editable text -> chunks. Inverse of page_to_text."""
+    chunks: list[dict] = []
+    for block in re.split(r"\n\s*\n", body or ""):
+        b = block.strip()
+        if not b:
+            continue
+        m = IMG_LINE.match(b)
+        if m:
+            chunks.append({"page": page, "image": m.group(1).strip(),
+                           "kind": "image",
+                           "caption": (m.group(2) or "").strip() or None})
+        elif b.startswith("# "):
+            chunks.append({"page": page, "text": b[2:].strip(), "heading": True})
+        else:
+            chunks.append({"page": page, "text": b})
+    return chunks
+
+
+def page_hash(chunks: list[dict]) -> str:
+    """Fingerprint of MinerU's own text for a page, for staleness reporting."""
+    return hashlib.sha1(page_to_text(chunks).encode("utf-8")).hexdigest()
+
 # The first cut of this import; removed so the book does not exist twice.
 LEGACY_CATEGORY = "设定集"
 
@@ -187,11 +232,45 @@ def main() -> None:
     chapter_id = {r["level_code"]: r["id"] for r in made}
     log.info(f"  {len(made)} chapter(s)")
 
+    # Hand-corrected pages (040). Read AFTER the wipe above because they live in
+    # their own table — that separation is the whole point: the import destroys
+    # chapters and nodes on every run, and would destroy proofreading with them.
+    overrides = {}
+    for start in range(0, 20000, 1000):
+        rows = _execute(db.table("book_page_overrides")
+                        .select("page, body, source_hash").range(start, start + 999),
+                        "select overrides").data or []
+        for r in rows:
+            overrides[r["page"]] = r
+        if len(rows) < 1000:
+            break
+    if overrides:
+        log.info(f"{len(overrides)} hand-corrected page(s)")
+
     node_rows = []
+    stale_pages = []
     for s in sections:
         cid = chapter_id.get(s["number"])
         if not cid:
             continue
+        # Replace each overridden page's chunks in place, keeping the section's
+        # page order. A page absent from the overrides is untouched.
+        by_page: dict[int, list[dict]] = {}
+        for c in s["chunks"]:
+            by_page.setdefault(c["page"], []).append(c)
+        rebuilt: list[dict] = []
+        for pno, group in by_page.items():
+            ov = overrides.get(pno)
+            if not ov:
+                rebuilt.extend(group)
+                continue
+            if ov.get("source_hash") and ov["source_hash"] != page_hash(group):
+                # The OCR changed under an existing edit. The human read the
+                # scan and the model did not, so the edit still wins — but say
+                # so, or new upstream text is masked silently.
+                stale_pages.append(pno)
+            rebuilt.extend(text_to_page(ov["body"], pno))
+        s = {**s, "chunks": rebuilt}
         for i, c in enumerate(s["chunks"], 1):
             if c.get("image"):
                 # An illustration. `cgitem` already exists in the nodes type
@@ -234,6 +313,9 @@ def main() -> None:
         _execute(db.table("nodes").insert(node_rows[i:i + CHUNK]), "insert nodes")
         done += len(node_rows[i:i + CHUNK])
         log.info(f"    inserted {done}/{len(node_rows)} paragraph(s)")
+    if stale_pages:
+        log.warning(f"  {len(stale_pages)} overridden page(s) whose OCR has since "
+                    f"changed — the edit still wins, but review: {sorted(stale_pages)[:10]}")
     log.info("done")
 
 

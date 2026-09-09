@@ -6,6 +6,8 @@ import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
 import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
 import { boardBacklinks, type Backlink } from '@/app/actions/boards'
 import { bookImageUrl } from '@/lib/storage'
+import { isCurrentUserAdmin } from '@/app/actions/comments'
+import BookPageEditor from '@/components/BookPageEditor'
 
 const PAGE_SIZE = 100
 
@@ -107,6 +109,22 @@ export default async function ChapterPage({ params, searchParams }: Props) {
 
   const nodeList: NodeRow[] = (nodes ?? []) as NodeRow[]
   const nodeIds = nodeList.map(n => n.id)
+
+  // Proofreading affordance for the settings book: an admin gets a per-page
+  // editor inline with the text, so a correction is made while looking at the
+  // paragraph rather than in a separate tool. Only asked for on that category —
+  // this is an editorial surface, not a general feature.
+  const isBook = category === '大地巡旅'
+  const canEdit = isBook && await isCurrentUserAdmin()
+  // First node of each printed page, so the editor renders once per page.
+  const pageStarts = new Map<number, number>()   // node id -> page
+  if (canEdit) {
+    const seen = new Set<number>()
+    for (const n of nodeList) {
+      const pg = (n.raw_params as { page?: number } | null)?.page
+      if (pg != null && !seen.has(pg)) { seen.add(pg); pageStarts.set(n.id, pg) }
+    }
+  }
 
   // ---- 3. Decision branch chain for decision nodes on this page ----
   // decisions → predicate_branches → branch rows in `nodes`. Branch
@@ -320,6 +338,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
         <ol className="space-y-2">
           {nodeList.map(n => (
             <li key={n.id} className="group" id={`n${n.seq}`}>
+              {pageStarts.has(n.id) && <BookPageEditor page={pageStarts.get(n.id)!} />}
               <NodeBody node={n} decision={decisionMap.get(n.id)} />
               <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
               <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
