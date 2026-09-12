@@ -76,6 +76,9 @@ CATEGORY = "大地巡旅"
 # admin editor reads and writes — see 040_book_page_overrides.sql for why the
 # unit is a whole page rather than a chunk.
 IMG_LINE = re.compile(r"^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$")
+# `#` … `#####`. Five levels because MinerU only resolves two and the print
+# nests deeper than that; the extra depth is assigned by hand while proofreading.
+HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
 
 
 def page_to_text(chunks: list[dict]) -> str:
@@ -86,7 +89,8 @@ def page_to_text(chunks: list[dict]) -> str:
             cap = c.get("caption")
             out.append(f"[[img:{c['image']}" + (f"|{cap}" if cap else "") + "]]")
         elif c.get("text"):
-            out.append(("# " if c.get("heading") else "") + c["text"])
+            lvl = c.get("level") or (1 if c.get("heading") else 0)
+            out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
     return "\n\n".join(out)
 
 
@@ -102,8 +106,9 @@ def text_to_page(body: str, page: int) -> list[dict]:
             chunks.append({"page": page, "image": m.group(1).strip(),
                            "kind": "image",
                            "caption": (m.group(2) or "").strip() or None})
-        elif b.startswith("# "):
-            chunks.append({"page": page, "text": b[2:].strip(), "heading": True})
+        elif (m := HEAD_LINE.match(b)):
+            chunks.append({"page": page, "text": m.group(2).strip(),
+                           "heading": True, "level": len(m.group(1))})
         else:
             chunks.append({"page": page, "text": b})
     return chunks
@@ -305,7 +310,8 @@ def main() -> None:
                 "content": c["text"],
                 # seq is paragraph order; the printed page lives here or nowhere.
                 "raw_params": {"page": c["page"], "source": "mineru",
-                               **({"heading": True} if c.get("heading") else {})},
+                               **({"heading": True} if c.get("heading") else {}),
+                               **({"level": c["level"]} if c.get("level") else {})},
             })
 
     done = 0

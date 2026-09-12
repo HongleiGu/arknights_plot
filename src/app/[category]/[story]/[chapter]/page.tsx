@@ -474,6 +474,30 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
     </span>
   )
 
+  // A book heading (raw_params.level 1-5). Stored since the first import and
+  // rendered as ordinary prose until now, so all 698 of them read as body text.
+  // Falls back to the pre-existing `heading` boolean so the 698 already in the
+  // database render without waiting for a re-import.
+  const rp = node.raw_params as { level?: number; heading?: boolean } | null
+  const level = rp?.level ?? (rp?.heading ? 1 : 0)
+  if (level && node.content) {
+    // Sizes step down rather than mapping to h1-h5 semantics: the section
+    // title is already the page's h1, so these are all subordinate to it.
+    const cls = [
+      'text-lg text-ark-text',
+      'text-base text-ark-text',
+      'text-sm text-ark-text',
+      'text-sm text-ark-muted',
+      'text-xs text-ark-muted',
+    ][Math.min(level, 5) - 1]
+    return (
+      <div className="flex gap-3 pt-4 pb-1">
+        {gutter}
+        <h3 className={`flex-1 font-medium tracking-wide ${cls}`}>{node.content}</h3>
+      </div>
+    )
+  }
+
   if (node.type === 'subtitle') {
     return (
       <div className="flex gap-3 py-1.5">

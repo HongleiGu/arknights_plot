@@ -32,7 +32,10 @@ interface NodeRow {
   seq: number
   type: string
   content: string | null
-  raw_params: { page?: number; image?: string; caption?: string; heading?: boolean } | null
+  raw_params: {
+    page?: number; image?: string; caption?: string
+    heading?: boolean; level?: number
+  } | null
 }
 
 /** Serialise a page's imported nodes into the editable text form. */
@@ -42,7 +45,8 @@ function toText(nodes: NodeRow[]): string {
     if (n.type === 'cgitem' && rp.image) {
       return `[[img:${rp.image}${rp.caption ? `|${rp.caption}` : ''}]]`
     }
-    return (rp.heading ? '# ' : '') + (n.content ?? '')
+    const lvl = rp.level ?? (rp.heading ? 1 : 0)
+    return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
   }).filter(Boolean).join('\n\n')
 }
 
@@ -166,7 +170,8 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
       ? { page, source: 'override', image: b.image, kind: 'image',
           ...(b.caption ? { caption: b.caption } : {}),
           image_sha1: await sha1(`book-images/${b.image}`) }
-      : { page, source: 'override', ...(b.heading ? { heading: true } : {}) },
+      : { page, source: 'override',
+          ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}) },
   })))
   const { error } = await db.from('nodes').insert(insert)
   if (error) return { ok: false, error: error.message }
@@ -179,13 +184,18 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
 
 const IMG_LINE = /^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$/
 
-interface Block { text?: string; image?: string; caption?: string; heading?: boolean }
+interface Block { text?: string; image?: string; caption?: string; heading?: boolean; level?: number }
+
+// `#` … `#####`. Five levels because MinerU resolves only two and the print
+// nests deeper; the extra depth is assigned by hand while proofreading.
+const HEAD_LINE = /^(#{1,5})\s+([\s\S]*)$/
 
 function body(text: string): Block[] {
   return text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean).map(b => {
     const m = IMG_LINE.exec(b)
     if (m) return { image: m[1].trim(), caption: (m[2] ?? '').trim() || undefined }
-    if (b.startsWith('# ')) return { text: b.slice(2).trim(), heading: true }
+    const h = HEAD_LINE.exec(b)
+    if (h) return { text: h[2].trim(), heading: true, level: h[1].length }
     return { text: b }
   })
 }

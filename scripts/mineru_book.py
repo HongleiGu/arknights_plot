@@ -353,7 +353,17 @@ def main() -> None:
                     t = block_text(b)
                     if t:
                         t = apply_corrections(t, pno, corrections, fixed)
+                        # MinerU labels titles with a `level` (80 at 1, 651 at
+                        # 2) and it was being thrown away, collapsing every
+                        # sub-heading into one flat "is a heading" flag. Level 1
+                        # restates the section title; level 2 is everything
+                        # inside it — but FLAT, where the print nests deeper
+                        # (活性化 / 适应性 sit under 源石的特性). So this is a
+                        # seed for the real depth, which only a human reading
+                        # the page can assign; the editor accepts # … #####.
+                        lvl = b.get("level") if kind == "title" else None
                         chunks.append({"page": pno, "text": t,
+                                       **({"level": int(lvl)} if lvl else {}),
                                        "heading": kind == "title"})
                 elif kind in ("image", "chart"):
                     # Placed at its own position in the flow, not appended after

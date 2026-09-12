@@ -75,7 +75,8 @@ export default function BookPageEditor({ page }: { page: number }) {
         {overridden && <span className="text-ark-accent"> · 已有修订</span>}
       </p>
       <p className="text-[10px] text-ark-muted leading-relaxed">
-        空行分段；<code className="text-ark-text">{'# '}</code>开头为小标题；
+        空行分段；<code className="text-ark-text">{'# '}</code>～
+        <code className="text-ark-text">{'##### '}</code>为一至五级小标题；
         <code className="text-ark-text">{'[[img:文件名|图注]]'}</code> 为插图。
         段落顺序即阅读顺序，直接调整行序即可。
       </p>
