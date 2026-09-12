@@ -142,7 +142,20 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
                                `请重新运行 import_book.py 以重建该章节` }
   }
 
-  await db.from('nodes').delete().in('id', rows.map(r => r.id))
+  // Verify the delete actually removed the old nodes before inserting the new
+  // ones. Under RLS a delete the policy disallows affects zero rows WITHOUT
+  // erroring, so a policy gap would leave both versions of the page in place
+  // rather than failing — which reads as duplicated text, not as a permission
+  // problem. `select()` makes postgrest return the deleted rows so this is
+  // checkable at all.
+  const { data: removed, error: delErr } = await db.from('nodes')
+    .delete().in('id', rows.map(r => r.id)).select('id')
+  if (delErr) return { ok: false, error: delErr.message }
+  if ((removed ?? []).length !== rows.length) {
+    return { ok: false,
+             error: `无法替换该页节点（删除 ${(removed ?? []).length}/${rows.length}）；` +
+                    `请确认迁移 041 已应用` }
+  }
   const insert = await Promise.all(blocks.map(async (b, i) => ({
     chapter_id: chapterId,
     seq: seqs[i],
