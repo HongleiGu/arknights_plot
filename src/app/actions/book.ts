@@ -35,7 +35,7 @@ interface NodeRow {
   raw_params: {
     page?: number; image?: string; images?: string[]
     caption?: string; captions?: (string | null)[]
-    heading?: boolean; level?: number
+    heading?: boolean; level?: number; aside?: boolean
   } | null
 }
 
@@ -52,6 +52,7 @@ function toText(nodes: NodeRow[]): string {
       const tail = caps.length ? caps.map(c => `|${c ?? ''}`).join('') : ''
       return `[[img:${imgs.join(',')}${tail}]]`
     }
+    if (rp.aside) return (n.content ?? '').split('\n').map(l => `>> ${l}`).join('\n')
     const lvl = rp.level ?? (rp.heading ? 1 : 0)
     return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
   }).filter(Boolean).join('\n\n')
@@ -184,7 +185,8 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
             ...(caps.length === 1 && caps[0] ? { caption: caps[0] } : {}),
             ...(caps.length > 1 ? { captions: caps } : {}) }
         : { page, source: 'override',
-            ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}) },
+            ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}),
+            ...(b.aside ? { aside: true } : {}) },
     }
   }))
   const { error } = await db.from('nodes').insert(insert)
@@ -206,8 +208,14 @@ const IMG_TOKEN = /\[\[img:[\s\S]*?\]\]/g
 
 interface Block {
   text?: string; images?: string[]; captions?: (string | null)[]
-  heading?: boolean; level?: number
+  heading?: boolean; level?: number; aside?: boolean
 }
+
+// `>> ` marks an inserted block. NOT a single `>`: 11 of the book's paragraphs
+// begin with `> ` as printed content (PRTS terminal prompts), which a
+// single-`>` marker would strip on the first save. Mirrors ASIDE_LINE in
+// import_book.py.
+const ASIDE_LINE = /^>>[ \t]?/gm
 
 // `#` … `#####`. Five levels because MinerU resolves only two and the print
 // nests deeper; the extra depth is assigned by hand while proofreading.
@@ -224,6 +232,10 @@ function body(text: string): Block[] {
     for (const raw of seg.split(/\n\s*\n/)) {
       const b = raw.trim()
       if (!b) continue
+      if (/^>>/.test(b)) {
+        out.push({ text: b.replace(ASIDE_LINE, '').trim(), aside: true })
+        continue
+      }
       const h = HEAD_LINE.exec(b)
       if (h) out.push({ text: h[2].trim(), heading: true, level: h[1].length })
       else out.push({ text: b })

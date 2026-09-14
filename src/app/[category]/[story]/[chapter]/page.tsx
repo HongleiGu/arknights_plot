@@ -517,6 +517,23 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
     )
   }
 
+  // An inserted block (`>> ` in the editor): a pull quote, sidebar or terminal
+  // transcript that sits beside the prose rather than in its flow. Indented,
+  // ruled and set smaller so the eye can skip it and rejoin the paragraph after.
+  // Must precede the subtitle branch — book text is subtitle nodes, so a later
+  // check never runs (the heading renderer hit exactly that).
+  if ((node.raw_params as { aside?: boolean } | null)?.aside && node.content) {
+    return (
+      <div className="flex gap-3 py-1">
+        {gutter}
+        <aside className="flex-1 ml-2 pl-3 border-l-2 border-ark-accent-dim/60
+                          text-xs text-ark-muted leading-relaxed whitespace-pre-line">
+          {node.content}
+        </aside>
+      </div>
+    )
+  }
+
   if (node.type === 'subtitle') {
     return (
       <div className="flex gap-3 py-1.5">

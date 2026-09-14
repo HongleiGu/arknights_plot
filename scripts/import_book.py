@@ -96,6 +96,15 @@ IMG_TOKEN = re.compile(r"\[\[img:[\s\S]*?\]\]")
 # `#` … `#####`. Five levels because MinerU only resolves two and the print
 # nests deeper than that; the extra depth is assigned by hand while proofreading.
 HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
+# `>> ` marks an inserted block — a pull quote, a sidebar, a PRTS terminal
+# transcript — that sits beside the prose rather than in its flow.
+#
+# Deliberately NOT a single `>`: measured, 11 of the book's paragraphs already
+# begin with `> ` as PRINTED content (the terminal prompts in 罗德岛生活指南,
+# e.g. `> 欢迎使用原生罗德岛终端服务`). A single-`>` marker would strip that
+# character on the first save — silent corruption presenting as a formatting
+# change. `>> ` occurs in none of the 3,904 paragraphs.
+ASIDE_LINE = re.compile(r"^>>[ \t]?", re.M)
 
 
 def images_of(c: dict) -> list[str]:
@@ -133,6 +142,8 @@ def page_to_text(chunks: list[dict]) -> str:
             caps = captions_of(c, len(imgs))
             tail = "".join(f"|{x or ''}" for x in caps) if caps else ""
             out.append(f"[[img:{','.join(imgs)}{tail}]]")
+        elif c.get("text") and c.get("aside"):
+            out.append("\n".join(">> " + ln for ln in c["text"].split("\n")))
         elif c.get("text"):
             lvl = c.get("level") or (1 if c.get("heading") else 0)
             out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
@@ -156,7 +167,12 @@ def text_to_page(body: str, page: int) -> list[dict]:
             b = block.strip()
             if not b:
                 continue
-            if (m := HEAD_LINE.match(b)):
+            if ASIDE_LINE.match(b):
+                # Strip the marker from every line that carries it, so a
+                # multi-line inserted block reads naturally in the editor.
+                inner = "\n".join(ASIDE_LINE.sub("", ln) for ln in b.split("\n")).strip()
+                chunks.append({"page": page, "text": inner, "aside": True})
+            elif (m := HEAD_LINE.match(b)):
                 chunks.append({"page": page, "text": m.group(2).strip(),
                                "heading": True, "level": len(m.group(1))})
             else:
@@ -388,7 +404,8 @@ def main() -> None:
                 # seq is paragraph order; the printed page lives here or nowhere.
                 "raw_params": {"page": c["page"], "source": "mineru",
                                **({"heading": True} if c.get("heading") else {}),
-                               **({"level": c["level"]} if c.get("level") else {})},
+                               **({"level": c["level"]} if c.get("level") else {}),
+                               **({"aside": True} if c.get("aside") else {})},
             })
 
     done = 0
