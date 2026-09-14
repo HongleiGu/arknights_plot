@@ -34,6 +34,17 @@ export function bookImageUrl(sha1: string | null | undefined): string | null {
   return `${R2}/book-images/${sha1}.png`
 }
 
+/** A full 大地巡旅 page scan → public URL (book-pages/<sha1>.jpg).
+ *
+ *  `.jpg`, unlike every other kind here: the bucket is PNG-only because that
+ *  is right for icons, and wrong for a photographic page scan — 222KB against
+ *  ~2.4MB per page, i.e. 98MB against ~1GB across the book, for no visible
+ *  difference at reading size. */
+export function bookPageUrl(sha1: string | null | undefined): string | null {
+  if (!sha1) return null
+  return `${R2}/book-pages/${sha1}.jpg`
+}
+
 /** gadgets.icon_sha1 → public URL (gadget-icons/<sha1>.png). */
 export function gadgetIconUrl(sha1: string | null | undefined): string | null {
   if (!sha1) return null

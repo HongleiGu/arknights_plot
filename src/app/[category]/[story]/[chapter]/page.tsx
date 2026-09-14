@@ -5,7 +5,9 @@ import CommentThread from '@/components/CommentThread'
 import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
 import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
 import { boardBacklinks, type Backlink } from '@/app/actions/boards'
-import { bookImageUrl } from '@/lib/storage'
+import { createHash } from 'node:crypto'
+import { bookImageUrl, bookPageUrl } from '@/lib/storage'
+import PageScan from '@/components/PageScan'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 import BookPageEditor from '@/components/BookPageEditor'
 
@@ -116,15 +118,23 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // this is an editorial surface, not a general feature.
   const isBook = category === '大地巡旅'
   const canEdit = isBook && await isCurrentUserAdmin()
-  // First node of each printed page, so the editor renders once per page.
-  const pageStarts = new Map<number, number>()   // node id -> page
-  if (canEdit) {
+  // First node of each printed page. Computed for ANY reader, not only an
+  // admin: the scan toggle is public (the text is OCR and the plates are crops,
+  // so the page's layout exists nowhere else), while the editor below it is
+  // admin-only. One map, two consumers with different gates.
+  const pageStarts = new Map<number, number>()   // node id -> printed page
+  if (isBook) {
     const seen = new Set<number>()
     for (const n of nodeList) {
       const pg = (n.raw_params as { page?: number } | null)?.page
       if (pg != null && !seen.has(pg)) { seen.add(pg); pageStarts.set(n.id, pg) }
     }
   }
+  // The asset key is the sha1 of the data/-relative path, so a page number is
+  // enough — no lookup, and it resolves even for a page not yet uploaded
+  // (the toggle then 404s on the image rather than the page failing to render).
+  const scanUrl = (pg: number) => bookPageUrl(
+    createHash('sha1').update(`book-pages/p${String(pg).padStart(4, '0')}.jpg`).digest('hex'))
 
   // ---- 3. Decision branch chain for decision nodes on this page ----
   // decisions → predicate_branches → branch rows in `nodes`. Branch
@@ -338,7 +348,16 @@ export default async function ChapterPage({ params, searchParams }: Props) {
         <ol className="space-y-2">
           {nodeList.map(n => (
             <li key={n.id} className="group" id={`n${n.seq}`}>
-              {pageStarts.has(n.id) && <BookPageEditor page={pageStarts.get(n.id)!} />}
+              {pageStarts.has(n.id) && (() => {
+                const pg = pageStarts.get(n.id)!
+                const url = scanUrl(pg)
+                return (
+                  <>
+                    {url && <PageScan src={url} label={`第 ${pg} 页`} />}
+                    {canEdit && <BookPageEditor page={pg} />}
+                  </>
+                )
+              })()}
               <NodeBody node={n} decision={decisionMap.get(n.id)} />
               <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
               <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
