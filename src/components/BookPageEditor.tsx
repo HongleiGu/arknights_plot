@@ -77,7 +77,8 @@ export default function BookPageEditor({ page }: { page: number }) {
       <p className="text-[10px] text-ark-muted leading-relaxed">
         空行分段；<code className="text-ark-text">{'# '}</code>～
         <code className="text-ark-text">{'##### '}</code>为一至五级小标题；
-        <code className="text-ark-text">{'[[img:文件名|图注]]'}</code> 为插图。
+        <code className="text-ark-text">{'[[img:文件名|图注]]'}</code> 为插图，
+        多图共用一条图注写作 <code className="text-ark-text">{'[[img:甲.png,乙.png|图注]]'}</code>。
         段落顺序即阅读顺序，直接调整行序即可。
       </p>
       <textarea

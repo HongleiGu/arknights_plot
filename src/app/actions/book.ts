@@ -33,7 +33,7 @@ interface NodeRow {
   type: string
   content: string | null
   raw_params: {
-    page?: number; image?: string; caption?: string
+    page?: number; image?: string; images?: string[]; caption?: string
     heading?: boolean; level?: number
   } | null
 }
@@ -42,8 +42,11 @@ interface NodeRow {
 function toText(nodes: NodeRow[]): string {
   return nodes.map(n => {
     const rp = n.raw_params ?? {}
-    if (n.type === 'cgitem' && rp.image) {
-      return `[[img:${rp.image}${rp.caption ? `|${rp.caption}` : ''}]]`
+    const imgs = rp.images?.length ? rp.images : (rp.image ? [rp.image] : [])
+    if (n.type === 'cgitem' && imgs.length) {
+      // A row of plates sharing one printed caption is comma-separated inside
+      // the same token — one rule instead of a second block type.
+      return `[[img:${imgs.join(',')}${rp.caption ? `|${rp.caption}` : ''}]]`
     }
     const lvl = rp.level ?? (rp.heading ? 1 : 0)
     return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
@@ -160,19 +163,24 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
              error: `无法替换该页节点（删除 ${(removed ?? []).length}/${rows.length}）；` +
                     `请确认迁移 041 已应用` }
   }
-  const insert = await Promise.all(blocks.map(async (b, i) => ({
-    chapter_id: chapterId,
-    seq: seqs[i],
-    type: b.image ? 'cgitem' : 'subtitle',
-    speaker: b.image ? null : 'narrator',
-    content: b.image ? null : b.text,
-    raw_params: b.image
-      ? { page, source: 'override', image: b.image, kind: 'image',
-          ...(b.caption ? { caption: b.caption } : {}),
-          image_sha1: await sha1(`book-images/${b.image}`) }
-      : { page, source: 'override',
-          ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}) },
-  })))
+  const insert = await Promise.all(blocks.map(async (b, i) => {
+    const imgs = b.images ?? []
+    const sha1s = await Promise.all(imgs.map(f => sha1(`book-images/${f}`)))
+    return {
+      chapter_id: chapterId,
+      seq: seqs[i],
+      type: imgs.length ? 'cgitem' : 'subtitle',
+      speaker: imgs.length ? null : 'narrator',
+      content: imgs.length ? null : b.text,
+      raw_params: imgs.length
+        ? { page, source: 'override', kind: 'image',
+            image: imgs[0], image_sha1: sha1s[0],
+            ...(imgs.length > 1 ? { images: imgs, image_sha1s: sha1s } : {}),
+            ...(b.caption ? { caption: b.caption } : {}) }
+        : { page, source: 'override',
+            ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}) },
+    }
+  }))
   const { error } = await db.from('nodes').insert(insert)
   if (error) return { ok: false, error: error.message }
 
@@ -184,7 +192,7 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
 
 const IMG_LINE = /^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$/
 
-interface Block { text?: string; image?: string; caption?: string; heading?: boolean; level?: number }
+interface Block { text?: string; images?: string[]; caption?: string; heading?: boolean; level?: number }
 
 // `#` … `#####`. Five levels because MinerU resolves only two and the print
 // nests deeper; the extra depth is assigned by hand while proofreading.
@@ -193,7 +201,10 @@ const HEAD_LINE = /^(#{1,5})\s+([\s\S]*)$/
 function body(text: string): Block[] {
   return text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean).map(b => {
     const m = IMG_LINE.exec(b)
-    if (m) return { image: m[1].trim(), caption: (m[2] ?? '').trim() || undefined }
+    if (m) return {
+      images: m[1].split(',').map(f => f.trim()).filter(Boolean),
+      caption: (m[2] ?? '').trim() || undefined,
+    }
     const h = HEAD_LINE.exec(b)
     if (h) return { text: h[2].trim(), heading: true, level: h[1].length }
     return { text: b }

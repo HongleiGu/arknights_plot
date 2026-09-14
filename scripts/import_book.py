@@ -75,19 +75,32 @@ CATEGORY = "大地巡旅"
 # heading, `[[img:file|caption]]` pins an illustration. The same format the
 # admin editor reads and writes — see 040_book_page_overrides.sql for why the
 # unit is a whole page rather than a chunk.
+# `[[img:a.png|cap]]` or, for a row of plates that share one printed caption,
+# `[[img:a.png,b.png,c.png|cap]]`. Comma-separated rather than a new block type:
+# 12 of the book's 35 multi-image runs share a caption, and a separate syntax
+# for them would be a second rule to remember for a case that is one character
+# away from the first.
 IMG_LINE = re.compile(r"^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$")
 # `#` … `#####`. Five levels because MinerU only resolves two and the print
 # nests deeper than that; the extra depth is assigned by hand while proofreading.
 HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
 
 
+def images_of(c: dict) -> list[str]:
+    """A chunk's illustrations. One block can hold a row sharing a caption."""
+    if c.get("images"):
+        return [f for f in c["images"] if f]
+    return [c["image"]] if c.get("image") else []
+
+
 def page_to_text(chunks: list[dict]) -> str:
     """Chunks -> the editable text for a page."""
     out = []
     for c in chunks:
-        if c.get("image"):
+        imgs = images_of(c)
+        if imgs:
             cap = c.get("caption")
-            out.append(f"[[img:{c['image']}" + (f"|{cap}" if cap else "") + "]]")
+            out.append(f"[[img:{','.join(imgs)}" + (f"|{cap}" if cap else "") + "]]")
         elif c.get("text"):
             lvl = c.get("level") or (1 if c.get("heading") else 0)
             out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
@@ -103,8 +116,11 @@ def text_to_page(body: str, page: int) -> list[dict]:
             continue
         m = IMG_LINE.match(b)
         if m:
-            chunks.append({"page": page, "image": m.group(1).strip(),
-                           "kind": "image",
+            files = [f.strip() for f in m.group(1).split(",") if f.strip()]
+            chunks.append({"page": page, "images": files, "kind": "image",
+                           # `image` kept alongside `images` so anything still
+                           # reading the single-file field keeps working.
+                           "image": files[0] if files else None,
                            "caption": (m.group(2) or "").strip() or None})
         elif (m := HEAD_LINE.match(b)):
             chunks.append({"page": page, "text": m.group(2).strip(),
@@ -277,14 +293,16 @@ def main() -> None:
             rebuilt.extend(text_to_page(ov["body"], pno))
         s = {**s, "chunks": rebuilt}
         for i, c in enumerate(s["chunks"], 1):
-            if c.get("image"):
+            imgs = images_of(c)
+            if imgs:
                 # An illustration. `cgitem` already exists in the nodes type
                 # CHECK for exactly this — a non-dialogue visual — so the book's
                 # plates need no schema of their own. The sha1 is the same
                 # convention every other asset uses (sha1 of the data/-relative
                 # path), which means it can be computed here without the upload
                 # having happened yet.
-                rel = f"book-images/{c['image']}"
+                sha1s = [hashlib.sha1(f"book-images/{f}".encode("utf-8")).hexdigest()
+                         for f in imgs]
                 node_rows.append({
                     "chapter_id": cid,
                     "seq": i,
@@ -293,12 +311,17 @@ def main() -> None:
                     "content": None,
                     "raw_params": {
                         "page": c["page"], "source": "mineru",
-                        "image": c["image"], "kind": c.get("kind"),
+                        "kind": c.get("kind"),
+                        # `image`/`image_sha1` stay as the first of the row so
+                        # anything reading the single-file fields keeps working;
+                        # `images`/`image_sha1s` carry the whole row.
+                        "image": imgs[0], "image_sha1": sha1s[0],
+                        **({"images": imgs, "image_sha1s": sha1s}
+                           if len(imgs) > 1 else {}),
                         # The plate's printed label. MinerU nests it under the
                         # image block, so it belongs to the illustration rather
                         # than to the surrounding prose.
                         **({"caption": c["caption"]} if c.get("caption") else {}),
-                        "image_sha1": hashlib.sha1(rel.encode("utf-8")).hexdigest(),
                     },
                 })
                 continue

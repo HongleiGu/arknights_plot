@@ -523,21 +523,33 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
     // 大地巡旅 plates carry an image_sha1 in raw_params (cropped from the scan
     // by mineru_book.py). AVG cgitem rows don't, and keep the placeholder —
     // there is no asset behind those.
-    const sha1 = (node.raw_params as { image_sha1?: string } | null)?.image_sha1
-    const page = (node.raw_params as { page?: number } | null)?.page
-    const caption = (node.raw_params as { caption?: string } | null)?.caption
-    const src = bookImageUrl(sha1)
+    const ip = node.raw_params as
+      { image_sha1?: string; image_sha1s?: string[]; page?: number; caption?: string } | null
+    // A row of plates sharing one printed caption arrives as several sha1s on
+    // one node, so the caption is rendered once under the row rather than
+    // repeated per image.
+    const sha1s = ip?.image_sha1s?.length ? ip.image_sha1s
+                : (ip?.image_sha1 ? [ip.image_sha1] : [])
+    const page = ip?.page
+    const caption = ip?.caption
+    const srcs = sha1s.map(bookImageUrl).filter((u): u is string => !!u)
     return (
       <div className="flex gap-3 py-1.5">
         {gutter}
-        {src ? (
+        {srcs.length ? (
           <figure className="flex-1 my-2">
-            {/* Plain <img>: these are arbitrary-aspect crops from a scan, and
-                next/image would need a width/height we don't store. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt={page ? `插图 · 第 ${page} 页` : '插图'}
-                 loading="lazy"
-                 className="max-w-full border border-ark-border bg-ark-surface" />
+            <div className={srcs.length > 1 ? 'flex gap-2 flex-wrap items-end' : ''}>
+              {srcs.map((src, i) => (
+                /* Plain <img>: these are arbitrary-aspect crops from a scan,
+                   and next/image would need a width/height we don't store. */
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img key={src} src={src}
+                     alt={page ? `插图 · 第 ${page} 页${srcs.length > 1 ? ` (${i + 1}/${srcs.length})` : ''}` : '插图'}
+                     loading="lazy"
+                     className={`border border-ark-border bg-ark-surface ${
+                       srcs.length > 1 ? 'max-h-64 w-auto' : 'max-w-full'}`} />
+              ))}
+            </div>
             {(caption || page) && (
               <figcaption className="mt-1">
                 {caption && (
@@ -545,7 +557,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
                 )}
                 {page && (
                   <span className="block font-mono text-[10px] text-ark-border tracking-widest">
-                    {'// P'}{page}
+                    {'// P'}{page}{srcs.length > 1 ? ` · ${srcs.length} 图` : ''}
                   </span>
                 )}
               </figcaption>
