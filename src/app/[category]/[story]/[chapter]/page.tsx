@@ -542,9 +542,17 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
         {gutter}
         {srcs.length ? (
           <figure className="flex-1 my-2">
-            <div className={srcs.length > 1 ? 'flex gap-2 flex-wrap items-end' : ''}>
+            {/* One grid row of N equal columns rather than a wrapping flex
+                row: with `flex-wrap` a run of four plates broke onto a second
+                line, which is not how the page prints them. minmax(0,1fr) is
+                what lets the columns actually shrink — `1fr` alone floors at
+                the image's intrinsic width and overflows instead. */}
+            <div className={srcs.length > 1 ? 'grid gap-2 items-end' : ''}
+                 style={srcs.length > 1
+                   ? { gridTemplateColumns: `repeat(${srcs.length}, minmax(0, 1fr))` }
+                   : undefined}>
               {srcs.map((src, i) => (
-                <span key={src} className={srcs.length > 1 ? 'flex flex-col gap-1 max-w-[48%]' : ''}>
+                <span key={src} className={srcs.length > 1 ? 'flex flex-col gap-1 min-w-0' : ''}>
                   {/* Plain <img>: these are arbitrary-aspect crops from a scan,
                       and next/image would need a width/height we don't store. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -554,18 +562,26 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
                          : '插图')}
                        loading="lazy"
                        className={`border border-ark-border bg-ark-surface ${
-                         srcs.length > 1 ? 'max-h-64 w-auto' : 'max-w-full'}`} />
+                         srcs.length > 1 ? 'w-full h-auto' : 'max-w-full'}`} />
                   {perImage?.[i] && (
-                    <span className="text-xs text-ark-muted leading-relaxed">{perImage[i]}</span>
+                    <span className="block text-xs text-ark-muted leading-relaxed">
+                      {perImage[i]!.split(/\n\s*\n/).map((para, k) => (
+                        <span key={k} className="block whitespace-pre-line">{para}</span>
+                      ))}
+                    </span>
                   )}
                 </span>
               ))}
             </div>
             {(caption || page) && (
               <figcaption className="mt-1">
-                {caption && (
-                  <span className="block text-xs text-ark-muted leading-relaxed">{caption}</span>
-                )}
+                {caption && caption.split(/\n\s*\n/).map((para, k) => (
+                  // A caption may be several paragraphs; whitespace-pre-line
+                  // keeps the single line breaks inside one of them.
+                  <span key={k} className="block text-xs text-ark-muted leading-relaxed whitespace-pre-line">
+                    {para}
+                  </span>
+                ))}
                 {page && (
                   <span className="block font-mono text-[10px] text-ark-border tracking-widest">
                     {'// P'}{page}{srcs.length > 1 ? ` · ${srcs.length} 图` : ''}

@@ -200,6 +200,9 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
 // line break, and with `.` the token failed to match and the illustration was
 // silently rewritten as a paragraph of literal markup.
 const IMG_LINE = /^\[\[img:([^|\]]+?)\s*(?:\|([\s\S]*))?\]\]$/
+// Tokens are lifted out before blank-line splitting so a caption can run to
+// several paragraphs; non-greedy so two adjacent tokens don't merge.
+const IMG_TOKEN = /\[\[img:[\s\S]*?\]\]/g
 
 interface Block {
   text?: string; images?: string[]; captions?: (string | null)[]
@@ -211,17 +214,36 @@ interface Block {
 const HEAD_LINE = /^(#{1,5})\s+([\s\S]*)$/
 
 function body(text: string): Block[] {
-  return text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean).map(b => {
-    const m = IMG_LINE.exec(b)
-    if (m) return {
-      images: m[1].split(',').map(f => f.trim()).filter(Boolean),
-      captions: m[2] === undefined ? []
-              : m[2].split('|').map(c => c.trim() || null),
+  // `[[img:…]]` tokens are lifted out FIRST and treated as atomic, then the
+  // text between them is split on blank lines. Splitting on blank lines first
+  // would make a blank line inside a caption end the token, so a caption could
+  // never be more than one paragraph. Mirrors text_to_page in import_book.py —
+  // these two must stay in step.
+  const out: Block[] = []
+  const pushText = (seg: string) => {
+    for (const raw of seg.split(/\n\s*\n/)) {
+      const b = raw.trim()
+      if (!b) continue
+      const h = HEAD_LINE.exec(b)
+      if (h) out.push({ text: h[2].trim(), heading: true, level: h[1].length })
+      else out.push({ text: b })
     }
-    const h = HEAD_LINE.exec(b)
-    if (h) return { text: h[2].trim(), heading: true, level: h[1].length }
-    return { text: b }
-  })
+  }
+  let pos = 0
+  for (const tok of text.matchAll(IMG_TOKEN)) {
+    pushText(text.slice(pos, tok.index))
+    const m = IMG_LINE.exec(tok[0].trim())
+    if (m) {
+      out.push({
+        images: m[1].split(',').map(f => f.trim()).filter(Boolean),
+        captions: m[2] === undefined ? []
+                : m[2].split('|').map(c => c.trim() || null),
+      })
+    }
+    pos = tok.index + tok[0].length
+  }
+  pushText(text.slice(pos))
+  return out
 }
 
 /** sha1 of the data/-relative path — the asset key convention (storage.ts). */

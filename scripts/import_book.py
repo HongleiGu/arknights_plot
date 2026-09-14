@@ -89,6 +89,10 @@ CATEGORY = "大地巡旅"
 # row, N captions label the N images individually. No caption contains a pipe
 # (checked: 0 of 96), so splitting on it is safe.
 IMG_LINE = re.compile(r"^\[\[img:([^|\]]+?)\s*(?:\|([\s\S]*))?\]\]$")
+# Used to lift whole tokens out of the body before blank-line splitting, so a
+# caption may run to several paragraphs. Non-greedy so two tokens in a row
+# don't merge into one.
+IMG_TOKEN = re.compile(r"\[\[img:[\s\S]*?\]\]")
 # `#` … `#####`. Five levels because MinerU only resolves two and the print
 # nests deeper than that; the extra depth is assigned by hand while proofreading.
 HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
@@ -136,13 +140,32 @@ def page_to_text(chunks: list[dict]) -> str:
 
 
 def text_to_page(body: str, page: int) -> list[dict]:
-    """The editable text -> chunks. Inverse of page_to_text."""
+    """
+    The editable text -> chunks. Inverse of page_to_text.
+
+    `[[img:…]]` tokens are extracted FIRST and treated as atomic, then the text
+    between them is split on blank lines. Splitting on blank lines first would
+    make a blank line inside a caption end the token, so a caption could never
+    be more than one paragraph — and several plate captions in this book are
+    two (a measurement line, then a parenthetical).
+    """
     chunks: list[dict] = []
-    for block in re.split(r"\n\s*\n", body or ""):
-        b = block.strip()
-        if not b:
-            continue
-        m = IMG_LINE.match(b)
+
+    def emit_text(segment: str) -> None:
+        for block in re.split(r"\n\s*\n", segment or ""):
+            b = block.strip()
+            if not b:
+                continue
+            if (m := HEAD_LINE.match(b)):
+                chunks.append({"page": page, "text": m.group(2).strip(),
+                               "heading": True, "level": len(m.group(1))})
+            else:
+                chunks.append({"page": page, "text": b})
+
+    pos = 0
+    for tok in IMG_TOKEN.finditer(body or ""):
+        emit_text((body or "")[pos:tok.start()])
+        m = IMG_LINE.match(tok.group(0).strip())
         if m:
             files = [f.strip() for f in m.group(1).split(",") if f.strip()]
             raw = m.group(2)
@@ -153,11 +176,8 @@ def text_to_page(body: str, page: int) -> list[dict]:
                            "image": files[0] if files else None,
                            "captions": caps,
                            "caption": caps[0] if len(caps) == 1 else None})
-        elif (m := HEAD_LINE.match(b)):
-            chunks.append({"page": page, "text": m.group(2).strip(),
-                           "heading": True, "level": len(m.group(1))})
-        else:
-            chunks.append({"page": page, "text": b})
+        pos = tok.end()
+    emit_text((body or "")[pos:])
     return chunks
 
 
