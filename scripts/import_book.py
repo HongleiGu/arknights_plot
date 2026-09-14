@@ -80,7 +80,15 @@ CATEGORY = "大地巡旅"
 # 12 of the book's 35 multi-image runs share a caption, and a separate syntax
 # for them would be a second rule to remember for a case that is one character
 # away from the first.
-IMG_LINE = re.compile(r"^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$")
+# A caption may itself contain a line break (10 of the book's 96 do — the
+# 大小：190—200cm / (常见种成体…) plate labels), so the caption tail is matched
+# with [\s\S] rather than `.`. With `.` the whole token failed to match and the
+# block fell through to the plain-text branch, turning the illustration into a
+# paragraph of literal `[[img:…]]` markup the first time the page was saved.
+# Captions after the first pipe are positional: one caption applies to the whole
+# row, N captions label the N images individually. No caption contains a pipe
+# (checked: 0 of 96), so splitting on it is safe.
+IMG_LINE = re.compile(r"^\[\[img:([^|\]]+?)\s*(?:\|([\s\S]*))?\]\]$")
 # `#` … `#####`. Five levels because MinerU only resolves two and the print
 # nests deeper than that; the extra depth is assigned by hand while proofreading.
 HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
@@ -93,14 +101,34 @@ def images_of(c: dict) -> list[str]:
     return [c["image"]] if c.get("image") else []
 
 
+def captions_of(c: dict, n: int) -> list[str | None]:
+    """
+    A chunk's captions: one shared, or one per image.
+
+    Returns [] when there is no caption at all, a 1-list when the row shares
+    one, and an n-list when each plate is labelled separately (8 runs in the
+    book do that — p11's 未活性化 / 开始活性化 / 逐渐分解 / 活性化结束).
+    """
+    caps = c.get("captions")
+    if caps:
+        if len(caps) == 1:
+            # One caption stays one, even for a multi-image row — padding it out
+            # to the image count would serialise as a trailing empty `|`.
+            return [caps[0]] if caps[0] else []
+        trimmed = list(caps[:n]) + [None] * max(0, n - len(caps))
+        return trimmed if any(trimmed) else []
+    return [c["caption"]] if c.get("caption") else []
+
+
 def page_to_text(chunks: list[dict]) -> str:
     """Chunks -> the editable text for a page."""
     out = []
     for c in chunks:
         imgs = images_of(c)
         if imgs:
-            cap = c.get("caption")
-            out.append(f"[[img:{','.join(imgs)}" + (f"|{cap}" if cap else "") + "]]")
+            caps = captions_of(c, len(imgs))
+            tail = "".join(f"|{x or ''}" for x in caps) if caps else ""
+            out.append(f"[[img:{','.join(imgs)}{tail}]]")
         elif c.get("text"):
             lvl = c.get("level") or (1 if c.get("heading") else 0)
             out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
@@ -117,11 +145,14 @@ def text_to_page(body: str, page: int) -> list[dict]:
         m = IMG_LINE.match(b)
         if m:
             files = [f.strip() for f in m.group(1).split(",") if f.strip()]
+            raw = m.group(2)
+            caps = [x.strip() or None for x in raw.split("|")] if raw is not None else []
             chunks.append({"page": page, "images": files, "kind": "image",
-                           # `image` kept alongside `images` so anything still
-                           # reading the single-file field keeps working.
+                           # `image`/`caption` kept alongside the lists so
+                           # anything still reading the single-file fields works.
                            "image": files[0] if files else None,
-                           "caption": (m.group(2) or "").strip() or None})
+                           "captions": caps,
+                           "caption": caps[0] if len(caps) == 1 else None})
         elif (m := HEAD_LINE.match(b)):
             chunks.append({"page": page, "text": m.group(2).strip(),
                            "heading": True, "level": len(m.group(1))})
@@ -303,6 +334,7 @@ def main() -> None:
                 # having happened yet.
                 sha1s = [hashlib.sha1(f"book-images/{f}".encode("utf-8")).hexdigest()
                          for f in imgs]
+                caps = captions_of(c, len(imgs))
                 node_rows.append({
                     "chapter_id": cid,
                     "seq": i,
@@ -320,8 +352,10 @@ def main() -> None:
                            if len(imgs) > 1 else {}),
                         # The plate's printed label. MinerU nests it under the
                         # image block, so it belongs to the illustration rather
-                        # than to the surrounding prose.
-                        **({"caption": c["caption"]} if c.get("caption") else {}),
+                        # than to the surrounding prose. `captions` carries one
+                        # label per image when the row is labelled individually.
+                        **({"caption": caps[0]} if len(caps) == 1 and caps[0] else {}),
+                        **({"captions": caps} if len(caps) > 1 else {}),
                     },
                 })
                 continue

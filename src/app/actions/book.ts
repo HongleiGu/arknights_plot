@@ -33,7 +33,8 @@ interface NodeRow {
   type: string
   content: string | null
   raw_params: {
-    page?: number; image?: string; images?: string[]; caption?: string
+    page?: number; image?: string; images?: string[]
+    caption?: string; captions?: (string | null)[]
     heading?: boolean; level?: number
   } | null
 }
@@ -44,9 +45,12 @@ function toText(nodes: NodeRow[]): string {
     const rp = n.raw_params ?? {}
     const imgs = rp.images?.length ? rp.images : (rp.image ? [rp.image] : [])
     if (n.type === 'cgitem' && imgs.length) {
-      // A row of plates sharing one printed caption is comma-separated inside
-      // the same token — one rule instead of a second block type.
-      return `[[img:${imgs.join(',')}${rp.caption ? `|${rp.caption}` : ''}]]`
+      // Files comma-separated; captions pipe-separated after them. One caption
+      // applies to the whole row, N caption the N images individually.
+      const caps = rp.captions?.length ? rp.captions
+                 : (rp.caption ? [rp.caption] : [])
+      const tail = caps.length ? caps.map(c => `|${c ?? ''}`).join('') : ''
+      return `[[img:${imgs.join(',')}${tail}]]`
     }
     const lvl = rp.level ?? (rp.heading ? 1 : 0)
     return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
@@ -165,6 +169,7 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
   }
   const insert = await Promise.all(blocks.map(async (b, i) => {
     const imgs = b.images ?? []
+    const caps = b.captions ?? []
     const sha1s = await Promise.all(imgs.map(f => sha1(`book-images/${f}`)))
     return {
       chapter_id: chapterId,
@@ -176,7 +181,8 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
         ? { page, source: 'override', kind: 'image',
             image: imgs[0], image_sha1: sha1s[0],
             ...(imgs.length > 1 ? { images: imgs, image_sha1s: sha1s } : {}),
-            ...(b.caption ? { caption: b.caption } : {}) }
+            ...(caps.length === 1 && caps[0] ? { caption: caps[0] } : {}),
+            ...(caps.length > 1 ? { captions: caps } : {}) }
         : { page, source: 'override',
             ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}) },
     }
@@ -190,9 +196,15 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
 
 // --- format helpers, mirroring import_book.py -------------------------------
 
-const IMG_LINE = /^\[\[img:([^|\]]+)(?:\|(.*))?\]\]$/
+// [\s\S] for the caption tail, not `.`: 10 of the book's captions contain a
+// line break, and with `.` the token failed to match and the illustration was
+// silently rewritten as a paragraph of literal markup.
+const IMG_LINE = /^\[\[img:([^|\]]+?)\s*(?:\|([\s\S]*))?\]\]$/
 
-interface Block { text?: string; images?: string[]; caption?: string; heading?: boolean; level?: number }
+interface Block {
+  text?: string; images?: string[]; captions?: (string | null)[]
+  heading?: boolean; level?: number
+}
 
 // `#` … `#####`. Five levels because MinerU resolves only two and the print
 // nests deeper; the extra depth is assigned by hand while proofreading.
@@ -203,7 +215,8 @@ function body(text: string): Block[] {
     const m = IMG_LINE.exec(b)
     if (m) return {
       images: m[1].split(',').map(f => f.trim()).filter(Boolean),
-      caption: (m[2] ?? '').trim() || undefined,
+      captions: m[2] === undefined ? []
+              : m[2].split('|').map(c => c.trim() || null),
     }
     const h = HEAD_LINE.exec(b)
     if (h) return { text: h[2].trim(), heading: true, level: h[1].length }

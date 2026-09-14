@@ -523,15 +523,19 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
     // 大地巡旅 plates carry an image_sha1 in raw_params (cropped from the scan
     // by mineru_book.py). AVG cgitem rows don't, and keep the placeholder —
     // there is no asset behind those.
-    const ip = node.raw_params as
-      { image_sha1?: string; image_sha1s?: string[]; page?: number; caption?: string } | null
+    const ip = node.raw_params as {
+      image_sha1?: string; image_sha1s?: string[]; page?: number
+      caption?: string; captions?: (string | null)[]
+    } | null
     // A row of plates sharing one printed caption arrives as several sha1s on
     // one node, so the caption is rendered once under the row rather than
     // repeated per image.
     const sha1s = ip?.image_sha1s?.length ? ip.image_sha1s
                 : (ip?.image_sha1 ? [ip.image_sha1] : [])
     const page = ip?.page
-    const caption = ip?.caption
+    // One caption sits under the whole row; N captions label each plate.
+    const perImage = (ip?.captions?.length ?? 0) > 1 ? ip!.captions! : null
+    const caption = perImage ? null : ip?.caption
     const srcs = sha1s.map(bookImageUrl).filter((u): u is string => !!u)
     return (
       <div className="flex gap-3 py-1.5">
@@ -540,14 +544,21 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
           <figure className="flex-1 my-2">
             <div className={srcs.length > 1 ? 'flex gap-2 flex-wrap items-end' : ''}>
               {srcs.map((src, i) => (
-                /* Plain <img>: these are arbitrary-aspect crops from a scan,
-                   and next/image would need a width/height we don't store. */
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img key={src} src={src}
-                     alt={page ? `插图 · 第 ${page} 页${srcs.length > 1 ? ` (${i + 1}/${srcs.length})` : ''}` : '插图'}
-                     loading="lazy"
-                     className={`border border-ark-border bg-ark-surface ${
-                       srcs.length > 1 ? 'max-h-64 w-auto' : 'max-w-full'}`} />
+                <span key={src} className={srcs.length > 1 ? 'flex flex-col gap-1 max-w-[48%]' : ''}>
+                  {/* Plain <img>: these are arbitrary-aspect crops from a scan,
+                      and next/image would need a width/height we don't store. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src}
+                       alt={perImage?.[i] || (page
+                         ? `插图 · 第 ${page} 页${srcs.length > 1 ? ` (${i + 1}/${srcs.length})` : ''}`
+                         : '插图')}
+                       loading="lazy"
+                       className={`border border-ark-border bg-ark-surface ${
+                         srcs.length > 1 ? 'max-h-64 w-auto' : 'max-w-full'}`} />
+                  {perImage?.[i] && (
+                    <span className="text-xs text-ark-muted leading-relaxed">{perImage[i]}</span>
+                  )}
+                </span>
               ))}
             </div>
             {(caption || page) && (
