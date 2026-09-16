@@ -130,6 +130,23 @@ export default async function ChapterPage({ params, searchParams }: Props) {
       if (pg != null && !seen.has(pg)) { seen.add(pg); pageStarts.set(n.id, pg) }
     }
   }
+  // Consecutive `>> ` paragraphs are ONE inserted block, and the reader has to
+  // show them as one. The left rule used to be drawn per paragraph, so a
+  // block's own `// COMMENTS` affordances and the gap between list items
+  // chopped it into pieces — the 14-paragraph letter in 1.3 天灾 read as 14
+  // unrelated sidebars, and 15 of the book's 17 blocks are multi-paragraph.
+  //
+  // Adjacency IS the definition of a block: the editor format carries no block
+  // id, and two blocks written back to back are indistinguishable from one
+  // block of two paragraphs. A printed-page start also ends a run — the scan
+  // toggle it renders is full width, and the block does continue on a new page.
+  const nodeGroups: NodeRow[][] = []
+  for (const n of nodeList) {
+    const asideOf = (r: NodeRow) => !!(r.raw_params as { aside?: boolean } | null)?.aside
+    const prev = nodeGroups[nodeGroups.length - 1]
+    if (asideOf(n) && prev && asideOf(prev[0]) && !pageStarts.has(n.id)) prev.push(n)
+    else nodeGroups.push([n])
+  }
   // The asset key is the sha1 of the data/-relative path, so a page number is
   // enough — no lookup, and it resolves even for a page not yet uploaded
   // (the toggle then 404s on the image rather than the page failing to render).
@@ -346,23 +363,40 @@ export default async function ChapterPage({ params, searchParams }: Props) {
 
         {/* Node list */}
         <ol className="space-y-2">
-          {nodeList.map(n => (
-            <li key={n.id} className="group" id={`n${n.seq}`}>
-              {pageStarts.has(n.id) && (() => {
-                const pg = pageStarts.get(n.id)!
-                const url = scanUrl(pg)
-                return (
-                  <>
-                    {url && <PageScan src={url} label={`第 ${pg} 页`} />}
-                    {canEdit && <BookPageEditor page={pg} />}
-                  </>
-                )
-              })()}
-              <NodeBody node={n} decision={decisionMap.get(n.id)} />
-              <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
-              <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
-            </li>
-          ))}
+          {nodeGroups.map(group => {
+            const items = group.map(n => (
+              <li key={n.id} className="group" id={`n${n.seq}`}>
+                {pageStarts.has(n.id) && (() => {
+                  const pg = pageStarts.get(n.id)!
+                  const url = scanUrl(pg)
+                  return (
+                    <>
+                      {url && <PageScan src={url} label={`第 ${pg} 页`} />}
+                      {canEdit && <BookPageEditor page={pg} />}
+                    </>
+                  )
+                })()}
+                <NodeBody node={n} decision={decisionMap.get(n.id)} />
+                <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
+                <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
+              </li>
+            ))
+            if (!(group[0].raw_params as { aside?: boolean } | null)?.aside) return items
+            // One rule for the whole block, drawn over the group rather than by
+            // each paragraph, so nothing between the paragraphs can break it.
+            // It is absolutely positioned at the column where the paragraphs
+            // start — the gutter (w-12) plus the row's gap-3 plus the aside's
+            // own 0.5rem inset — because the members are separate flex rows and
+            // a border on any one of them can only ever be that row tall.
+            return (
+              <li key={`b${group[0].id}`} className="relative">
+                <span aria-hidden
+                      className="absolute top-1 bottom-1 left-17 w-0.5
+                                 bg-ark-accent-dim/60" />
+                <ol className="space-y-2">{items}</ol>
+              </li>
+            )
+          })}
           {nodeList.length === 0 && (
             // A comic episode legitimately has no text yet — its 526 chapters
             // are metadata only until panel OCR lands (AP-33). Saying "no
@@ -503,11 +537,17 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   const level = rp?.level ?? (rp?.heading ? 1 : 0)
 
   // Everything belonging to an inserted block — its prose, its headings and its
-  // plates — carries the same indent and rule, so the reader can see where the
-  // block starts and ends without the parts being styled as main-flow content.
-  // A heading or an illustration inside a block is not an exception to it.
+  // plates — carries the same indent, so the reader can see where the block
+  // starts and ends without the parts being styled as main-flow content. A
+  // heading or an illustration inside a block is not an exception to it.
+  //
+  // Indent only: the rule is drawn once over the whole block by the node list,
+  // not here. A border on a paragraph can only be that paragraph tall, which is
+  // what made a block of several paragraphs read as several separate blocks.
+  // 1.25rem keeps the text exactly where the old `ml-2 pl-3` put it, and the
+  // list positions the rule to match.
   const isAside = !!rp?.aside
-  const ASIDE = 'ml-2 pl-3 border-l-2 border-ark-accent-dim/60'
+  const ASIDE = 'pl-5'
 
   if (level && node.content) {
     // Sizes step down rather than mapping to h1-h5 semantics: the section
