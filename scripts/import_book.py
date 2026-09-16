@@ -105,6 +105,13 @@ HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
 # character on the first save — silent corruption presenting as a formatting
 # change. `>> ` occurs in none of the 3,904 paragraphs.
 ASIDE_LINE = re.compile(r"^>>[ \t]?", re.M)
+# The same marker immediately before an `[[img:…]]` token — i.e. the tail of the
+# text segment that precedes one. Image tokens are lifted out of the body before
+# blank-line splitting, so the `>> ` in `>> [[img:a.png|图注]]` was left behind
+# as a text segment that strips to nothing and is dropped: the marker never
+# reached the image, and a plate belonging to an inserted block rendered as a
+# full-width illustration in the main flow.
+ASIDE_TAIL = re.compile(r"(?:\n|\A)[ \t]*>>[ \t]*\Z")
 
 
 def images_of(c: dict) -> list[str]:
@@ -141,9 +148,17 @@ def page_to_text(chunks: list[dict]) -> str:
         if imgs:
             caps = captions_of(c, len(imgs))
             tail = "".join(f"|{x or ''}" for x in caps) if caps else ""
-            out.append(f"[[img:{','.join(imgs)}{tail}]]")
+            # Only the token's first line carries the marker. A caption may span
+            # paragraphs, and the token is parsed back atomically before markers
+            # are stripped, so a `>> ` on an inner line would end up inside the
+            # caption text rather than being removed.
+            lead = ">> " if c.get("aside") else ""
+            out.append(f"{lead}[[img:{','.join(imgs)}{tail}]]")
         elif c.get("text") and c.get("aside"):
-            out.append("\n".join(">> " + ln for ln in c["text"].split("\n")))
+            lvl = c.get("level") or (1 if c.get("heading") else 0)
+            head = "#" * min(lvl, 5) + " " if lvl else ""
+            out.append("\n".join(">> " + ln
+                                 for ln in (head + c["text"]).split("\n")))
         elif c.get("text"):
             lvl = c.get("level") or (1 if c.get("heading") else 0)
             out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
@@ -168,10 +183,23 @@ def text_to_page(body: str, page: int) -> list[dict]:
             if not b:
                 continue
             if ASIDE_LINE.match(b):
-                # Strip the marker from every line that carries it, so a
-                # multi-line inserted block reads naturally in the editor.
-                inner = "\n".join(ASIDE_LINE.sub("", ln) for ln in b.split("\n")).strip()
-                chunks.append({"page": page, "text": inner, "aside": True})
+                # Strip the marker from every line that carries it, then split
+                # the remainder on its own blank lines. A `>> ` line with
+                # nothing after it is blank INSIDE the aside but not blank to
+                # the outer splitter, so without this an inserted block that
+                # contains a heading and a paragraph collapsed into one chunk
+                # and the heading rendered as a literal `#`.
+                inner = "\n".join(ASIDE_LINE.sub("", ln) for ln in b.split("\n"))
+                for sub in re.split(r"\n\s*\n", inner):
+                    t = sub.strip()
+                    if not t:
+                        continue
+                    if (hm := HEAD_LINE.match(t)):
+                        chunks.append({"page": page, "text": hm.group(2).strip(),
+                                       "heading": True, "level": len(hm.group(1)),
+                                       "aside": True})
+                    else:
+                        chunks.append({"page": page, "text": t, "aside": True})
             elif (m := HEAD_LINE.match(b)):
                 chunks.append({"page": page, "text": m.group(2).strip(),
                                "heading": True, "level": len(m.group(1))})
@@ -180,7 +208,14 @@ def text_to_page(body: str, page: int) -> list[dict]:
 
     pos = 0
     for tok in IMG_TOKEN.finditer(body or ""):
-        emit_text((body or "")[pos:tok.start()])
+        lead = (body or "")[pos:tok.start()]
+        # A `>> ` directly before the token marks the plate as part of the
+        # inserted block, so take it off the preceding segment rather than
+        # letting it strip away unnoticed.
+        aside = bool(ASIDE_TAIL.search(lead))
+        if aside:
+            lead = ASIDE_TAIL.sub("", lead)
+        emit_text(lead)
         m = IMG_LINE.match(tok.group(0).strip())
         if m:
             files = [f.strip() for f in m.group(1).split(",") if f.strip()]
@@ -191,7 +226,8 @@ def text_to_page(body: str, page: int) -> list[dict]:
                            # anything still reading the single-file fields works.
                            "image": files[0] if files else None,
                            "captions": caps,
-                           "caption": caps[0] if len(caps) == 1 else None})
+                           "caption": caps[0] if len(caps) == 1 else None,
+                           **({"aside": True} if aside else {})})
         pos = tok.end()
     emit_text((body or "")[pos:])
     return chunks
@@ -392,6 +428,10 @@ def main() -> None:
                         # label per image when the row is labelled individually.
                         **({"caption": caps[0]} if len(caps) == 1 and caps[0] else {}),
                         **({"captions": caps} if len(caps) > 1 else {}),
+                        # Belongs to an inserted block, so the reader indents it
+                        # under the same rule as the block's prose instead of
+                        # running it full-width through the main flow.
+                        **({"aside": True} if c.get("aside") else {}),
                     },
                 })
                 continue

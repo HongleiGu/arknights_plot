@@ -497,22 +497,38 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   // rendered as ordinary prose until now, so all 698 of them read as body text.
   // Falls back to the pre-existing `heading` boolean so the 698 already in the
   // database render without waiting for a re-import.
-  const rp = node.raw_params as { level?: number; heading?: boolean } | null
+  const rp = node.raw_params as {
+    level?: number; heading?: boolean; aside?: boolean
+  } | null
   const level = rp?.level ?? (rp?.heading ? 1 : 0)
+
+  // Everything belonging to an inserted block — its prose, its headings and its
+  // plates — carries the same indent and rule, so the reader can see where the
+  // block starts and ends without the parts being styled as main-flow content.
+  // A heading or an illustration inside a block is not an exception to it.
+  const isAside = !!rp?.aside
+  const ASIDE = 'ml-2 pl-3 border-l-2 border-ark-accent-dim/60'
+
   if (level && node.content) {
     // Sizes step down rather than mapping to h1-h5 semantics: the section
     // title is already the page's h1, so these are all subordinate to it.
-    const cls = [
-      'text-lg text-ark-text',
-      'text-base text-ark-text',
-      'text-sm text-ark-text',
-      'text-sm text-ark-muted',
-      'text-xs text-ark-muted',
-    ][Math.min(level, 5) - 1]
+    // Inside a block the whole scale drops, since the block's prose is text-xs
+    // and an ordinary text-lg heading there would out-rank the section itself.
+    const cls = isAside
+      ? (level <= 1 ? 'text-sm text-ark-text' : 'text-xs text-ark-text')
+      : [
+          'text-lg text-ark-text',
+          'text-base text-ark-text',
+          'text-sm text-ark-text',
+          'text-sm text-ark-muted',
+          'text-xs text-ark-muted',
+        ][Math.min(level, 5) - 1]
     return (
-      <div className="flex gap-3 pt-4 pb-1">
+      <div className={`flex gap-3 ${isAside ? 'pt-3 pb-0.5' : 'pt-4 pb-1'}`}>
         {gutter}
-        <h3 className={`flex-1 font-medium tracking-wide ${cls}`}>{node.content}</h3>
+        <h3 className={`flex-1 font-medium tracking-wide ${cls} ${isAside ? ASIDE : ''}`}>
+          {node.content}
+        </h3>
       </div>
     )
   }
@@ -522,12 +538,12 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   // ruled and set smaller so the eye can skip it and rejoin the paragraph after.
   // Must precede the subtitle branch — book text is subtitle nodes, so a later
   // check never runs (the heading renderer hit exactly that).
-  if ((node.raw_params as { aside?: boolean } | null)?.aside && node.content) {
+  if (isAside && node.content) {
     return (
       <div className="flex gap-3 py-1">
         {gutter}
-        <aside className="flex-1 ml-2 pl-3 border-l-2 border-ark-accent-dim/60
-                          text-xs text-ark-muted leading-relaxed whitespace-pre-line">
+        <aside className={`flex-1 ${ASIDE} text-xs text-ark-muted
+                           leading-relaxed whitespace-pre-line`}>
           {node.content}
         </aside>
       </div>
@@ -577,7 +593,11 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
       <div className="flex gap-3 py-1.5">
         {gutter}
         {srcs.length ? (
-          <figure className="flex-1 my-2">
+          // A plate inside an inserted block takes the block's indent and rule,
+          // and is capped in width: a full-bleed illustration reads as a plate
+          // of the main text, which is exactly the confusion `>> ` exists to
+          // prevent. Same treatment as the block's prose, so the two group.
+          <figure className={`flex-1 my-2 ${isAside ? `${ASIDE} max-w-md` : ''}`}>
             {/* One grid row of N equal columns rather than a wrapping flex
                 row: with `flex-wrap` a run of four plates broke onto a second
                 line, which is not how the page prints them. minmax(0,1fr) is

@@ -81,7 +81,11 @@ export default function BookPageEditor({ page }: { page: number }) {
         多图共用一条图注写作 <code className="text-ark-text">{'[[img:甲.png,乙.png|图注]]'}</code>，
         各自一条则写作 <code className="text-ark-text">{'[[img:甲.png,乙.png|图注甲|图注乙]]'}</code>。
         <code className="text-ark-text">{'>> '}</code>开头为插入段落（引文、旁栏、终端记录），
-        不打断正文；注意单个 <code className="text-ark-text">{'>'}</code> 是原文内容，不是标记。
+        不打断正文；小标题与插图也可归入插入段落，写作
+        <code className="text-ark-text">{'>> # 小标题'}</code> 与
+        <code className="text-ark-text">{'>> [[img:甲.png|图注]]'}</code>，
+        会与旁栏同样缩进、共用左侧标线；注意单个
+        <code className="text-ark-text">{'>'}</code> 是原文内容，不是标记。
         段落顺序即阅读顺序，直接调整行序即可。
       </p>
       <textarea

@@ -50,9 +50,15 @@ function toText(nodes: NodeRow[]): string {
       const caps = rp.captions?.length ? rp.captions
                  : (rp.caption ? [rp.caption] : [])
       const tail = caps.length ? caps.map(c => `|${c ?? ''}`).join('') : ''
-      return `[[img:${imgs.join(',')}${tail}]]`
+      // Only the first line carries the marker — a caption may span paragraphs
+      // and the token is parsed back atomically, before markers are stripped.
+      return `${rp.aside ? '>> ' : ''}[[img:${imgs.join(',')}${tail}]]`
     }
-    if (rp.aside) return (n.content ?? '').split('\n').map(l => `>> ${l}`).join('\n')
+    if (rp.aside) {
+      const l = rp.level ?? (rp.heading ? 1 : 0)
+      const h = l ? '#'.repeat(Math.min(l, 5)) + ' ' : ''
+      return (h + (n.content ?? '')).split('\n').map(x => `>> ${x}`).join('\n')
+    }
     const lvl = rp.level ?? (rp.heading ? 1 : 0)
     return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
   }).filter(Boolean).join('\n\n')
@@ -183,7 +189,10 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
             image: imgs[0], image_sha1: sha1s[0],
             ...(imgs.length > 1 ? { images: imgs, image_sha1s: sha1s } : {}),
             ...(caps.length === 1 && caps[0] ? { caption: caps[0] } : {}),
-            ...(caps.length > 1 ? { captions: caps } : {}) }
+            ...(caps.length > 1 ? { captions: caps } : {}),
+            // Part of an inserted block: the reader indents it under the same
+            // rule as the block's prose rather than running it full-width.
+            ...(b.aside ? { aside: true } : {}) }
         : { page, source: 'override',
             ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}),
             ...(b.aside ? { aside: true } : {}) },
@@ -216,6 +225,13 @@ interface Block {
 // single-`>` marker would strip on the first save. Mirrors ASIDE_LINE in
 // import_book.py.
 const ASIDE_LINE = /^>>[ \t]?/gm
+// The same marker directly before an `[[img:…]]` token. Tokens are lifted out
+// before blank-line splitting, so the `>> ` in `>> [[img:a.png|图注]]` is left
+// behind as a text segment that strips to nothing and is dropped — the marker
+// never reached the image, and a plate belonging to an inserted block rendered
+// as a full-width illustration in the main flow. Mirrors ASIDE_TAIL in
+// import_book.py.
+const ASIDE_TAIL = /(?:\n|^)[ \t]*>>[ \t]*$/
 
 // `#` … `#####`. Five levels because MinerU resolves only two and the print
 // nests deeper; the extra depth is assigned by hand while proofreading.
@@ -233,7 +249,18 @@ function body(text: string): Block[] {
       const b = raw.trim()
       if (!b) continue
       if (/^>>/.test(b)) {
-        out.push({ text: b.replace(ASIDE_LINE, '').trim(), aside: true })
+        // Strip the marker from every line, then split on the remainder's own
+        // blank lines: a `>> ` line with nothing after it is blank INSIDE the
+        // aside but not blank to the outer splitter, so without this a block
+        // holding a heading and a paragraph collapsed into one chunk and the
+        // heading rendered as a literal `#`.
+        for (const sub of b.replace(ASIDE_LINE, '').split(/\n\s*\n/)) {
+          const t = sub.trim()
+          if (!t) continue
+          const hm = HEAD_LINE.exec(t)
+          if (hm) out.push({ text: hm[2].trim(), heading: true, level: hm[1].length, aside: true })
+          else out.push({ text: t, aside: true })
+        }
         continue
       }
       const h = HEAD_LINE.exec(b)
@@ -243,13 +270,20 @@ function body(text: string): Block[] {
   }
   let pos = 0
   for (const tok of text.matchAll(IMG_TOKEN)) {
-    pushText(text.slice(pos, tok.index))
+    let lead = text.slice(pos, tok.index)
+    // A `>> ` directly before the token marks the plate as part of the inserted
+    // block, so take it off the preceding segment rather than letting it strip
+    // away unnoticed.
+    const aside = ASIDE_TAIL.test(lead)
+    if (aside) lead = lead.replace(ASIDE_TAIL, '')
+    pushText(lead)
     const m = IMG_LINE.exec(tok[0].trim())
     if (m) {
       out.push({
         images: m[1].split(',').map(f => f.trim()).filter(Boolean),
         captions: m[2] === undefined ? []
                 : m[2].split('|').map(c => c.trim() || null),
+        ...(aside ? { aside: true } : {}),
       })
     }
     pos = tok.index + tok[0].length
