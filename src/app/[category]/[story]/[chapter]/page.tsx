@@ -364,24 +364,38 @@ export default async function ChapterPage({ params, searchParams }: Props) {
         {/* Node list */}
         <ol className="space-y-2">
           {nodeGroups.map(group => {
+            const isBlock = !!(group[0].raw_params as { aside?: boolean } | null)?.aside
+            // The scanned page and its editor belong to the printed PAGE, not to
+            // whatever node happens to start it. A page start always begins a new
+            // group, so inside a block this only ever lands on the first member —
+            // and it is rendered above the block rather than in it, so the rule
+            // does not run down through the toggle and the 校订 button.
+            const pageChrome = (n: NodeRow) => {
+              if (!pageStarts.has(n.id)) return null
+              const pg = pageStarts.get(n.id)!
+              const url = scanUrl(pg)
+              return (
+                <>
+                  {url && <PageScan src={url} label={`第 ${pg} 页`} />}
+                  {canEdit && <BookPageEditor page={pg} />}
+                </>
+              )
+            }
             const items = group.map(n => (
               <li key={n.id} className="group" id={`n${n.seq}`}>
-                {pageStarts.has(n.id) && (() => {
-                  const pg = pageStarts.get(n.id)!
-                  const url = scanUrl(pg)
-                  return (
-                    <>
-                      {url && <PageScan src={url} label={`第 ${pg} 页`} />}
-                      {canEdit && <BookPageEditor page={pg} />}
-                    </>
-                  )
-                })()}
+                {!isBlock && pageChrome(n)}
                 <NodeBody node={n} decision={decisionMap.get(n.id)} />
-                <NodeBacklinks boards={backlinks[`node/${n.id}`]} />
-                <CommentThread anchor={{ node_id: n.id }} initialCount={commentCounts.get(n.id) ?? 0} />
+                {/* Inside a block these sit at the block's own text column, past
+                    the rule. At their default margin they start LEFT of it and
+                    the rule draws straight through the text and the buttons. */}
+                <NodeBacklinks boards={backlinks[`node/${n.id}`]}
+                               indent={isBlock ? 'pl-20' : undefined} />
+                <CommentThread anchor={{ node_id: n.id }}
+                               initialCount={commentCounts.get(n.id) ?? 0}
+                               indent={isBlock ? 'ml-20' : undefined} />
               </li>
             ))
-            if (!(group[0].raw_params as { aside?: boolean } | null)?.aside) return items
+            if (!isBlock) return items
             // One rule for the whole block, drawn over the group rather than by
             // each paragraph, so nothing between the paragraphs can break it.
             // It is absolutely positioned at the column where the paragraphs
@@ -389,11 +403,14 @@ export default async function ChapterPage({ params, searchParams }: Props) {
             // own 0.5rem inset — because the members are separate flex rows and
             // a border on any one of them can only ever be that row tall.
             return (
-              <li key={`b${group[0].id}`} className="relative">
-                <span aria-hidden
-                      className="absolute top-1 bottom-1 left-17 w-0.5
-                                 bg-ark-accent-dim/60" />
-                <ol className="space-y-2">{items}</ol>
+              <li key={`b${group[0].id}`}>
+                {pageChrome(group[0])}
+                <div className="relative">
+                  <span aria-hidden
+                        className="absolute top-1 bottom-1 left-17 w-0.5
+                                   bg-ark-accent-dim/60" />
+                  <ol className="space-y-2">{items}</ol>
+                </div>
               </li>
             )
           })}
@@ -482,12 +499,14 @@ export default async function ChapterPage({ params, searchParams }: Props) {
 // hovering reveals the boards that reference this line.
 // ---------------------------------------------------------------------------
 
-function NodeBacklinks({ boards }: { boards?: Backlink[] }) {
+function NodeBacklinks({ boards, indent = 'pl-15' }: { boards?: Backlink[]; indent?: string }) {
   if (!boards || boards.length === 0) return null
   return (
     // 3.75rem = gutter w-12 (3rem) + gap-3 (0.75rem), so the chip lines up
-    // under the node content rather than the line-number gutter.
-    <div className="pl-15">
+    // under the node content rather than the line-number gutter. A caller that
+    // indents its content further must indent this too — see `indent` on
+    // CommentThread for why.
+    <div className={indent}>
       <span className="relative inline-block group/bl align-baseline">
         <span className="font-mono text-[10px] text-ark-accent/70 tracking-widest cursor-default hover:text-ark-accent">
           ◇ {boards.length} 板

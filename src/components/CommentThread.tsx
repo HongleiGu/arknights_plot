@@ -44,6 +44,15 @@ const REACTION_EMOJIS = ['👍', '❤️', '🔥', '😂', '😮', '😢', '🎉
 interface Props {
   anchor: Anchor
   initialCount: number
+  /**
+   * Left margin of the whole thread, as a Tailwind class. Defaults to `ml-12`,
+   * which lines the indicator up just past the chapter reader's line-number
+   * gutter. A caller that indents its content further needs to indent this too
+   * — inside a 大地巡旅 inserted block the reader draws a rule down the block,
+   * and a thread at the default margin starts left of that rule and runs
+   * straight through it.
+   */
+  indent?: string
 }
 
 // What the open reply box is aimed at: parentId is the thread root the new
@@ -62,7 +71,7 @@ interface ReplyTarget {
  * reply that @-mentions another comment shows that author + a button to jump
  * to the referenced comment.
  */
-export default function CommentThread({ anchor, initialCount }: Props) {
+export default function CommentThread({ anchor, initialCount, indent = 'ml-12' }: Props) {
   const [open,     setOpen]     = useState(false)
   const [loaded,   setLoaded]   = useState(false)
   const [comments, setComments] = useState<CommentRow[]>([])
@@ -268,7 +277,7 @@ export default function CommentThread({ anchor, initialCount }: Props) {
   }
 
   return (
-    <div className="ml-12 mt-0.5 mb-1.5">
+    <div className={`${indent} mt-0.5 mb-1.5`}>
       <button
         type="button"
         onClick={toggle}
