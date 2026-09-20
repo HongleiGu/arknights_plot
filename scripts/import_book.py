@@ -105,13 +105,18 @@ HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
 # character on the first save — silent corruption presenting as a formatting
 # change. `>> ` occurs in none of the 3,904 paragraphs.
 ASIDE_LINE = re.compile(r"^>>[ \t]?", re.M)
-# The same marker immediately before an `[[img:…]]` token — i.e. the tail of the
-# text segment that precedes one. Image tokens are lifted out of the body before
-# blank-line splitting, so the `>> ` in `>> [[img:a.png|图注]]` was left behind
-# as a text segment that strips to nothing and is dropped: the marker never
-# reached the image, and a plate belonging to an inserted block rendered as a
-# full-width illustration in the main flow.
-ASIDE_TAIL = re.compile(r"(?:\n|\A)[ \t]*>>[ \t]*\Z")
+# How an image token survives the blank-line split. It is replaced by a
+# newline-free placeholder, the body is split into blocks, and the placeholder
+# is swapped back afterwards.
+#
+# The first cut LIFTED tokens out of the body instead, which protected a caption
+# that runs to several paragraphs but threw away the token's POSITION — and
+# position is exactly what says whether a plate continues the inserted block
+# above it or starts a new one. Masking protects the caption for the same reason
+# (the placeholder holds no newline, so no splitter can cut it) while keeping
+# the token where the author put it.
+PLACEHOLDER = "\x00img{}\x00"
+PLACEHOLDER_RE = re.compile(r"\x00img(\d+)\x00")
 
 
 def images_of(c: dict) -> list[str]:
@@ -141,27 +146,43 @@ def captions_of(c: dict, n: int) -> list[str | None]:
 
 
 def page_to_text(chunks: list[dict]) -> str:
-    """Chunks -> the editable text for a page."""
-    out = []
+    """
+    Chunks -> the editable text for a page.
+
+    Blocks are separated by a blank line. Inside an inserted block, paragraphs
+    are separated by a marker-only `>>` line instead — a blank line there would
+    end the block, which is how the author says "two blocks" rather than "two
+    paragraphs of one block".
+    """
+    out: list[str] = []
+    prev_aside = False
     for c in chunks:
         imgs = images_of(c)
+        aside = bool(c.get("aside"))
         if imgs:
             caps = captions_of(c, len(imgs))
             tail = "".join(f"|{x or ''}" for x in caps) if caps else ""
             # Only the token's first line carries the marker. A caption may span
-            # paragraphs, and the token is parsed back atomically before markers
-            # are stripped, so a `>> ` on an inner line would end up inside the
+            # paragraphs and the token is parsed back whole, before markers are
+            # stripped, so a `>> ` on an inner line would end up inside the
             # caption text rather than being removed.
-            lead = ">> " if c.get("aside") else ""
-            out.append(f"{lead}[[img:{','.join(imgs)}{tail}]]")
-        elif c.get("text") and c.get("aside"):
-            lvl = c.get("level") or (1 if c.get("heading") else 0)
-            head = "#" * min(lvl, 5) + " " if lvl else ""
-            out.append("\n".join(">> " + ln
-                                 for ln in (head + c["text"]).split("\n")))
+            piece = f"{'>> ' if aside else ''}[[img:{','.join(imgs)}{tail}]]"
         elif c.get("text"):
             lvl = c.get("level") or (1 if c.get("heading") else 0)
-            out.append(("#" * min(lvl, 5) + " " if lvl else "") + c["text"])
+            head = "#" * min(lvl, 5) + " " if lvl else ""
+            piece = head + c["text"]
+            if aside:
+                piece = "\n".join(">> " + ln for ln in piece.split("\n"))
+        else:
+            continue
+        # A chunk not flagged as starting a block continues the one above it.
+        # Rows written before the flag existed have none, which reads as
+        # "continues" — the same single block they rendered as back then.
+        if aside and prev_aside and not c.get("aside_start"):
+            out[-1] += "\n>>\n" + piece
+        else:
+            out.append(piece)
+        prev_aside = aside
     return "\n\n".join(out)
 
 
@@ -169,67 +190,84 @@ def text_to_page(body: str, page: int) -> list[dict]:
     """
     The editable text -> chunks. Inverse of page_to_text.
 
-    `[[img:…]]` tokens are extracted FIRST and treated as atomic, then the text
-    between them is split on blank lines. Splitting on blank lines first would
-    make a blank line inside a caption end the token, so a caption could never
-    be more than one paragraph — and several plate captions in this book are
-    two (a measurement line, then a parenthetical).
+    A blank line separates blocks, and that is also what separates two inserted
+    blocks: `>> a` / blank / `>> b` is two blocks, while `>> a` / `>>` / `>> b`
+    is one block of two paragraphs. The block boundary therefore has to be
+    decided before anything is pulled out of the text, which is why `[[img:…]]`
+    tokens are MASKED rather than lifted — see PLACEHOLDER.
     """
+    toks: list[str] = []
+
+    def mask(m: re.Match) -> str:
+        toks.append(m.group(0))
+        return PLACEHOLDER.format(len(toks) - 1)
+
+    masked = IMG_TOKEN.sub(mask, body or "")
     chunks: list[dict] = []
 
-    def emit_text(segment: str) -> None:
-        for block in re.split(r"\n\s*\n", segment or ""):
-            b = block.strip()
-            if not b:
-                continue
-            if ASIDE_LINE.match(b):
-                # Strip the marker from every line that carries it, then split
-                # the remainder on its own blank lines. A `>> ` line with
-                # nothing after it is blank INSIDE the aside but not blank to
-                # the outer splitter, so without this an inserted block that
-                # contains a heading and a paragraph collapsed into one chunk
-                # and the heading rendered as a literal `#`.
-                inner = "\n".join(ASIDE_LINE.sub("", ln) for ln in b.split("\n"))
-                for sub in re.split(r"\n\s*\n", inner):
-                    t = sub.strip()
-                    if not t:
-                        continue
-                    if (hm := HEAD_LINE.match(t)):
-                        chunks.append({"page": page, "text": hm.group(2).strip(),
-                                       "heading": True, "level": len(hm.group(1)),
-                                       "aside": True})
-                    else:
-                        chunks.append({"page": page, "text": t, "aside": True})
-            elif (m := HEAD_LINE.match(b)):
-                chunks.append({"page": page, "text": m.group(2).strip(),
-                               "heading": True, "level": len(m.group(1))})
-            else:
-                chunks.append({"page": page, "text": b})
+    def flags(aside: bool, start: bool) -> dict:
+        if not aside:
+            return {}
+        return {"aside": True, **({"aside_start": True} if start else {})}
 
-    pos = 0
-    for tok in IMG_TOKEN.finditer(body or ""):
-        lead = (body or "")[pos:tok.start()]
-        # A `>> ` directly before the token marks the plate as part of the
-        # inserted block, so take it off the preceding segment rather than
-        # letting it strip away unnoticed.
-        aside = bool(ASIDE_TAIL.search(lead))
-        if aside:
-            lead = ASIDE_TAIL.sub("", lead)
-        emit_text(lead)
-        m = IMG_LINE.match(tok.group(0).strip())
-        if m:
-            files = [f.strip() for f in m.group(1).split(",") if f.strip()]
-            raw = m.group(2)
-            caps = [x.strip() or None for x in raw.split("|")] if raw is not None else []
-            chunks.append({"page": page, "images": files, "kind": "image",
-                           # `image`/`caption` kept alongside the lists so
-                           # anything still reading the single-file fields works.
-                           "image": files[0] if files else None,
-                           "captions": caps,
-                           "caption": caps[0] if len(caps) == 1 else None,
-                           **({"aside": True} if aside else {})})
-        pos = tok.end()
-    emit_text((body or "")[pos:])
+    def push_text(t: str, aside: bool, start: bool) -> None:
+        if (hm := HEAD_LINE.match(t)):
+            chunks.append({"page": page, "text": hm.group(2).strip(),
+                           "heading": True, "level": len(hm.group(1)),
+                           **flags(aside, start)})
+        else:
+            chunks.append({"page": page, "text": t, **flags(aside, start)})
+
+    def push_image(tok: str, aside: bool, start: bool) -> None:
+        m = IMG_LINE.match(tok.strip())
+        if not m:
+            return
+        files = [f.strip() for f in m.group(1).split(",") if f.strip()]
+        raw = m.group(2)
+        caps = [x.strip() or None for x in raw.split("|")] if raw is not None else []
+        chunks.append({"page": page, "images": files, "kind": "image",
+                       # `image`/`caption` kept alongside the lists so anything
+                       # still reading the single-file fields works.
+                       "image": files[0] if files else None,
+                       "captions": caps,
+                       "caption": caps[0] if len(caps) == 1 else None,
+                       **flags(aside, start)})
+
+    def push_para(part: str, aside: bool, start: bool) -> bool:
+        """One paragraph, which may interleave text and plates. Returns `start`."""
+        pos = 0
+        for m in PLACEHOLDER_RE.finditer(part):
+            lead = part[pos:m.start()].strip()
+            if lead:
+                push_text(lead, aside, start)
+                start = False
+            push_image(toks[int(m.group(1))], aside, start)
+            start = False
+            pos = m.end()
+        tail = part[pos:].strip()
+        if tail:
+            push_text(tail, aside, start)
+            start = False
+        return start
+
+    for block in re.split(r"\n\s*\n", masked):
+        b = block.strip()
+        if not b:
+            continue
+        if ASIDE_LINE.match(b):
+            # A blank line ended whatever came before, so this is a new block.
+            # Inside it, strip the marker from every line and split on the
+            # remainder's own blank lines — a `>>` line with nothing after it is
+            # blank INSIDE the block but not blank to the outer splitter, which
+            # is precisely what lets one block hold several paragraphs.
+            start = True
+            inner = "\n".join(ASIDE_LINE.sub("", ln) for ln in b.split("\n"))
+            for sub in re.split(r"\n\s*\n", inner):
+                t = sub.strip()
+                if t:
+                    start = push_para(t, True, start)
+        else:
+            push_para(b, False, False)
     return chunks
 
 
@@ -432,6 +470,9 @@ def main() -> None:
                         # under the same rule as the block's prose instead of
                         # running it full-width through the main flow.
                         **({"aside": True} if c.get("aside") else {}),
+                        # First chunk of its block. Without this two blocks
+                        # that happen to be adjacent render as one.
+                        **({"aside_start": True} if c.get("aside_start") else {}),
                     },
                 })
                 continue
@@ -445,7 +486,8 @@ def main() -> None:
                 "raw_params": {"page": c["page"], "source": "mineru",
                                **({"heading": True} if c.get("heading") else {}),
                                **({"level": c["level"]} if c.get("level") else {}),
-                               **({"aside": True} if c.get("aside") else {})},
+                               **({"aside": True} if c.get("aside") else {}),
+                               **({"aside_start": True} if c.get("aside_start") else {})},
             })
 
     done = 0

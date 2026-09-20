@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import CommentThread from '@/components/CommentThread'
@@ -136,15 +137,17 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // chopped it into pieces — the 14-paragraph letter in 1.3 天灾 read as 14
   // unrelated sidebars, and 15 of the book's 17 blocks are multi-paragraph.
   //
-  // Adjacency IS the definition of a block: the editor format carries no block
-  // id, and two blocks written back to back are indistinguishable from one
-  // block of two paragraphs. A printed-page start also ends a run — the scan
-  // toggle it renders is full width, and the block does continue on a new page.
+  // `aside_start` marks the first paragraph of each block, so two blocks that
+  // happen to be adjacent stay two: the author separates them with a blank
+  // line and keeps one block together with a marker-only `>>` line. A
+  // printed-page start also ends a run — the scan toggle it renders is full
+  // width, and the block does continue on a new page.
   const nodeGroups: NodeRow[][] = []
   for (const n of nodeList) {
-    const asideOf = (r: NodeRow) => !!(r.raw_params as { aside?: boolean } | null)?.aside
+    const rp = (r: NodeRow) => r.raw_params as { aside?: boolean; aside_start?: boolean } | null
     const prev = nodeGroups[nodeGroups.length - 1]
-    if (asideOf(n) && prev && asideOf(prev[0]) && !pageStarts.has(n.id)) prev.push(n)
+    if (rp(n)?.aside && prev && rp(prev[0])?.aside
+        && !rp(n)?.aside_start && !pageStarts.has(n.id)) prev.push(n)
     else nodeGroups.push([n])
   }
   // The asset key is the sha1 of the data/-relative path, so a page number is
@@ -536,6 +539,37 @@ function NodeBacklinks({ boards, indent = 'pl-15' }: { boards?: Backlink[]; inde
 // Node body renderer (server component — no interactivity)
 // ---------------------------------------------------------------------------
 
+// `***both***`, `**bold**`, `*italic*` inside 大地巡旅 text.
+//
+// The importer never produces these and cannot: MinerU reports neither 着重号
+// nor type weight, so emphasis inferred from a scan would be invented. It is
+// only ever TRANSCRIBED — typed by hand against the printed page — which is why
+// this is a render-time concern and the two page parsers leave it as plain text.
+//
+// A delimiter must sit against a non-space character, the standard markdown
+// rule, and it earns its keep here: p302 prints two real footnote asterisks
+// (`官方货币无*` and `* 仅在南方一部分地区使用哥伦比亚金券`), and a looser
+// pattern would silently turn that footnote into italics. Underscores are NOT a
+// marker — Chinese has no word boundaries for the intraword rule to work with.
+const EMPHASIS =
+  /\*\*\*(?=\S)([\s\S]*?\S)\*\*\*|\*\*(?=\S)([\s\S]*?\S)\*\*|\*(?=\S)([\s\S]*?\S)\*/
+
+function emphasis(text: string): ReactNode {
+  const m = EMPHASIS.exec(text)
+  if (!m) return text
+  const pre = text.slice(0, m.index)
+  const post = emphasis(text.slice(m.index + m[0].length))
+  if (m[1] !== undefined) {
+    return <>{pre}<strong className="font-semibold text-ark-text">
+      <em>{emphasis(m[1])}</em></strong>{post}</>
+  }
+  if (m[2] !== undefined) {
+    return <>{pre}<strong className="font-semibold text-ark-text">
+      {emphasis(m[2])}</strong>{post}</>
+  }
+  return <>{pre}<em className="italic">{emphasis(m[3])}</em>{post}</>
+}
+
 function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }) {
   const seqPad = node.seq.toString().padStart(4, '0')
 
@@ -551,9 +585,14 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   // Falls back to the pre-existing `heading` boolean so the 698 already in the
   // database render without waiting for a re-import.
   const rp = node.raw_params as {
-    level?: number; heading?: boolean; aside?: boolean
+    level?: number; heading?: boolean; aside?: boolean; source?: string
   } | null
   const level = rp?.level ?? (rp?.heading ? 1 : 0)
+
+  // Emphasis is a 大地巡旅 feature only. AVG script is scraped, never
+  // hand-edited, so a `*` there is the wiki's own character and must stay one.
+  const fmt = (s: string | null): ReactNode =>
+    (rp?.source === 'mineru' || rp?.source === 'override') && s ? emphasis(s) : s
 
   // Everything belonging to an inserted block — its prose, its headings and its
   // plates — carries the same indent, so the reader can see where the block
@@ -586,7 +625,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
       <div className={`flex gap-3 ${isAside ? 'pt-3 pb-0.5' : 'pt-4 pb-1'}`}>
         {gutter}
         <h3 className={`flex-1 font-medium tracking-wide ${cls} ${isAside ? ASIDE : ''}`}>
-          {node.content}
+          {fmt(node.content)}
         </h3>
       </div>
     )
@@ -603,7 +642,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
         {gutter}
         <aside className={`flex-1 ${ASIDE} text-xs text-ark-muted
                            leading-relaxed whitespace-pre-line`}>
-          {node.content}
+          {fmt(node.content)}
         </aside>
       </div>
     )
@@ -614,7 +653,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
       <div className="flex gap-3 py-1.5">
         {gutter}
         <p className="flex-1 italic text-center text-ark-muted text-sm tracking-wide">
-          {node.content}
+          {fmt(node.content)}
         </p>
       </div>
     )
@@ -681,7 +720,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
                   {perImage?.[i] && (
                     <span className="block text-xs text-ark-muted leading-relaxed">
                       {perImage[i]!.split(/\n\s*\n/).map((para, k) => (
-                        <span key={k} className="block whitespace-pre-line">{para}</span>
+                        <span key={k} className="block whitespace-pre-line">{emphasis(para)}</span>
                       ))}
                     </span>
                   )}
@@ -694,7 +733,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
                   // A caption may be several paragraphs; whitespace-pre-line
                   // keeps the single line breaks inside one of them.
                   <span key={k} className="block text-xs text-ark-muted leading-relaxed whitespace-pre-line">
-                    {para}
+                    {emphasis(para)}
                   </span>
                 ))}
                 {page && (

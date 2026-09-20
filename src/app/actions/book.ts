@@ -35,15 +35,26 @@ interface NodeRow {
   raw_params: {
     page?: number; image?: string; images?: string[]
     caption?: string; captions?: (string | null)[]
-    heading?: boolean; level?: number; aside?: boolean
+    heading?: boolean; level?: number; aside?: boolean; aside_start?: boolean
   } | null
 }
 
-/** Serialise a page's imported nodes into the editable text form. */
+/**
+ * Serialise a page's imported nodes into the editable text form.
+ *
+ * Blocks are separated by a blank line. Inside an inserted block, paragraphs
+ * are separated by a marker-only `>>` line instead — a blank line there ends
+ * the block, which is how the author says "two blocks" rather than "two
+ * paragraphs of one block". Mirrors page_to_text in import_book.py.
+ */
 function toText(nodes: NodeRow[]): string {
-  return nodes.map(n => {
+  const out: string[] = []
+  let prevAside = false
+  for (const n of nodes) {
     const rp = n.raw_params ?? {}
     const imgs = rp.images?.length ? rp.images : (rp.image ? [rp.image] : [])
+    const aside = !!rp.aside
+    let piece: string
     if (n.type === 'cgitem' && imgs.length) {
       // Files comma-separated; captions pipe-separated after them. One caption
       // applies to the whole row, N caption the N images individually.
@@ -51,17 +62,23 @@ function toText(nodes: NodeRow[]): string {
                  : (rp.caption ? [rp.caption] : [])
       const tail = caps.length ? caps.map(c => `|${c ?? ''}`).join('') : ''
       // Only the first line carries the marker — a caption may span paragraphs
-      // and the token is parsed back atomically, before markers are stripped.
-      return `${rp.aside ? '>> ' : ''}[[img:${imgs.join(',')}${tail}]]`
+      // and the token is parsed back whole, before markers are stripped.
+      piece = `${aside ? '>> ' : ''}[[img:${imgs.join(',')}${tail}]]`
+    } else if (n.content) {
+      const lvl = rp.level ?? (rp.heading ? 1 : 0)
+      piece = (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + n.content
+      if (aside) piece = piece.split('\n').map(x => `>> ${x}`).join('\n')
+    } else {
+      continue
     }
-    if (rp.aside) {
-      const l = rp.level ?? (rp.heading ? 1 : 0)
-      const h = l ? '#'.repeat(Math.min(l, 5)) + ' ' : ''
-      return (h + (n.content ?? '')).split('\n').map(x => `>> ${x}`).join('\n')
-    }
-    const lvl = rp.level ?? (rp.heading ? 1 : 0)
-    return (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + (n.content ?? '')
-  }).filter(Boolean).join('\n\n')
+    // A row not flagged as starting a block continues the one above it. Rows
+    // written before the flag existed carry none, which reads as "continues" —
+    // the single block they rendered as back then.
+    if (aside && prevAside && !rp.aside_start) out[out.length - 1] += '\n>>\n' + piece
+    else out.push(piece)
+    prevAside = aside
+  }
+  return out.join('\n\n')
 }
 
 /**
@@ -192,10 +209,14 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
             ...(caps.length > 1 ? { captions: caps } : {}),
             // Part of an inserted block: the reader indents it under the same
             // rule as the block's prose rather than running it full-width.
-            ...(b.aside ? { aside: true } : {}) }
+            ...(b.aside ? { aside: true } : {}),
+            ...(b.aside_start ? { aside_start: true } : {}) }
         : { page, source: 'override',
             ...(b.heading ? { heading: true, level: b.level ?? 1 } : {}),
-            ...(b.aside ? { aside: true } : {}) },
+            ...(b.aside ? { aside: true } : {}),
+            // First chunk of its block. Without it two blocks that happen to
+            // be adjacent render as one.
+            ...(b.aside_start ? { aside_start: true } : {}) },
     }
   }))
   const { error } = await db.from('nodes').insert(insert)
@@ -217,7 +238,7 @@ const IMG_TOKEN = /\[\[img:[\s\S]*?\]\]/g
 
 interface Block {
   text?: string; images?: string[]; captions?: (string | null)[]
-  heading?: boolean; level?: number; aside?: boolean
+  heading?: boolean; level?: number; aside?: boolean; aside_start?: boolean
 }
 
 // `>> ` marks an inserted block. NOT a single `>`: 11 of the book's paragraphs
@@ -225,70 +246,81 @@ interface Block {
 // single-`>` marker would strip on the first save. Mirrors ASIDE_LINE in
 // import_book.py.
 const ASIDE_LINE = /^>>[ \t]?/gm
-// The same marker directly before an `[[img:…]]` token. Tokens are lifted out
-// before blank-line splitting, so the `>> ` in `>> [[img:a.png|图注]]` is left
-// behind as a text segment that strips to nothing and is dropped — the marker
-// never reached the image, and a plate belonging to an inserted block rendered
-// as a full-width illustration in the main flow. Mirrors ASIDE_TAIL in
-// import_book.py.
-const ASIDE_TAIL = /(?:\n|^)[ \t]*>>[ \t]*$/
+// How an image token survives the blank-line split: it is masked to a
+// newline-free placeholder, the body is split, and the token is swapped back.
+// The first cut LIFTED tokens out instead, which protected a caption running to
+// several paragraphs but threw away the token's POSITION — and position is what
+// says whether a plate continues the block above it or starts a new one.
+// Mirrors PLACEHOLDER in import_book.py.
+const PLACEHOLDER_RE = /\x00img(\d+)\x00/g
 
 // `#` … `#####`. Five levels because MinerU resolves only two and the print
 // nests deeper; the extra depth is assigned by hand while proofreading.
 const HEAD_LINE = /^(#{1,5})\s+([\s\S]*)$/
 
 function body(text: string): Block[] {
-  // `[[img:…]]` tokens are lifted out FIRST and treated as atomic, then the
-  // text between them is split on blank lines. Splitting on blank lines first
-  // would make a blank line inside a caption end the token, so a caption could
-  // never be more than one paragraph. Mirrors text_to_page in import_book.py —
-  // these two must stay in step.
+  // A blank line separates blocks, and that is also what separates two inserted
+  // blocks: `>> a` / blank / `>> b` is two blocks, while `>> a` / `>>` / `>> b`
+  // is one block of two paragraphs. The boundary therefore has to be decided
+  // before anything is pulled out of the text. Mirrors text_to_page in
+  // import_book.py — these two must stay in step.
+  const toks: string[] = []
+  const masked = text.replace(IMG_TOKEN, t => `\x00img${toks.push(t) - 1}\x00`)
   const out: Block[] = []
-  const pushText = (seg: string) => {
-    for (const raw of seg.split(/\n\s*\n/)) {
-      const b = raw.trim()
-      if (!b) continue
-      if (/^>>/.test(b)) {
-        // Strip the marker from every line, then split on the remainder's own
-        // blank lines: a `>> ` line with nothing after it is blank INSIDE the
-        // aside but not blank to the outer splitter, so without this a block
-        // holding a heading and a paragraph collapsed into one chunk and the
-        // heading rendered as a literal `#`.
-        for (const sub of b.replace(ASIDE_LINE, '').split(/\n\s*\n/)) {
-          const t = sub.trim()
-          if (!t) continue
-          const hm = HEAD_LINE.exec(t)
-          if (hm) out.push({ text: hm[2].trim(), heading: true, level: hm[1].length, aside: true })
-          else out.push({ text: t, aside: true })
-        }
-        continue
+
+  const flags = (aside: boolean, start: boolean) =>
+    aside ? { aside: true, ...(start ? { aside_start: true } : {}) } : {}
+
+  const pushText = (t: string, aside: boolean, start: boolean) => {
+    const h = HEAD_LINE.exec(t)
+    if (h) out.push({ text: h[2].trim(), heading: true, level: h[1].length, ...flags(aside, start) })
+    else out.push({ text: t, ...flags(aside, start) })
+  }
+
+  const pushImage = (tok: string, aside: boolean, start: boolean) => {
+    const m = IMG_LINE.exec(tok.trim())
+    if (!m) return
+    out.push({
+      images: m[1].split(',').map(f => f.trim()).filter(Boolean),
+      captions: m[2] === undefined ? []
+              : m[2].split('|').map(c => c.trim() || null),
+      ...flags(aside, start),
+    })
+  }
+
+  /** One paragraph, which may interleave text and plates. Returns `start`. */
+  const pushPara = (part: string, aside: boolean, start: boolean): boolean => {
+    let pos = 0
+    for (const m of part.matchAll(PLACEHOLDER_RE)) {
+      const lead = part.slice(pos, m.index).trim()
+      if (lead) { pushText(lead, aside, start); start = false }
+      pushImage(toks[Number(m[1])], aside, start)
+      start = false
+      pos = m.index + m[0].length
+    }
+    const tail = part.slice(pos).trim()
+    if (tail) { pushText(tail, aside, start); start = false }
+    return start
+  }
+
+  for (const block of masked.split(/\n\s*\n/)) {
+    const b = block.trim()
+    if (!b) continue
+    if (/^>>/.test(b)) {
+      // A blank line ended whatever came before, so this is a new block. Inside
+      // it, strip the marker from every line and split on the remainder's own
+      // blank lines — a `>>` line with nothing after it is blank INSIDE the
+      // block but not blank to the outer splitter, which is precisely what lets
+      // one block hold several paragraphs.
+      let start = true
+      for (const sub of b.replace(ASIDE_LINE, '').split(/\n\s*\n/)) {
+        const t = sub.trim()
+        if (t) start = pushPara(t, true, start)
       }
-      const h = HEAD_LINE.exec(b)
-      if (h) out.push({ text: h[2].trim(), heading: true, level: h[1].length })
-      else out.push({ text: b })
+    } else {
+      pushPara(b, false, false)
     }
   }
-  let pos = 0
-  for (const tok of text.matchAll(IMG_TOKEN)) {
-    let lead = text.slice(pos, tok.index)
-    // A `>> ` directly before the token marks the plate as part of the inserted
-    // block, so take it off the preceding segment rather than letting it strip
-    // away unnoticed.
-    const aside = ASIDE_TAIL.test(lead)
-    if (aside) lead = lead.replace(ASIDE_TAIL, '')
-    pushText(lead)
-    const m = IMG_LINE.exec(tok[0].trim())
-    if (m) {
-      out.push({
-        images: m[1].split(',').map(f => f.trim()).filter(Boolean),
-        captions: m[2] === undefined ? []
-                : m[2].split('|').map(c => c.trim() || null),
-        ...(aside ? { aside: true } : {}),
-      })
-    }
-    pos = tok.index + tok[0].length
-  }
-  pushText(text.slice(pos))
   return out
 }
 

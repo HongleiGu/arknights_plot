@@ -86,6 +86,13 @@ export default function BookPageEditor({ page }: { page: number }) {
         <code className="text-ark-text">{'>> [[img:甲.png|图注]]'}</code>，
         会与旁栏同样缩进、共用左侧标线；注意单个
         <code className="text-ark-text">{'>'}</code> 是原文内容，不是标记。
+        同一插入块内分段用只写 <code className="text-ark-text">{'>>'}</code> 的空行，
+        <b className="text-ark-text">真正的空行会另起一个插入块</b>（各自一条标线）。
+        行内可用 <code className="text-ark-text">{'**加粗**'}</code>、
+        <code className="text-ark-text">{'*斜体*'}</code>、
+        <code className="text-ark-text">{'***两者***'}</code>；
+        星号两侧须紧贴非空格字符，所以 302 页那种脚注星号
+        （<code className="text-ark-text">{'* 仅在……'}</code>）不会被当成标记。
         段落顺序即阅读顺序，直接调整行序即可。
       </p>
       <textarea
