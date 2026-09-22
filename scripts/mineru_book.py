@@ -92,10 +92,59 @@ EXTRA_SECTIONS = [
     # front-matter offset that folio 107 -> p116 also shows).
     ("4",       "泰拉种族",       "RACES OF TERRA", 87,  "4"),
     ("6.Extra", "罗德岛生活指南", "RHODES ISLAND",  401, "6"),
+    # The appendix divider (p427, "ADDENDUM 附录 APPENDIX") and 泰拉纪年 carry
+    # no CHAPTER marker either, so without these the whole tail fell inside
+    # 组织名录: pages 427-430 read as more organisation entries.
+    ("附录",     "附录",          "APPENDIX",       427, "附录"),
+    ("泰拉纪年", "泰拉纪年",       "TIMELINE OF TERRAN HISTORY", 428, "附录"),
     ("后记",     "后记",          "POSTFACE",       431, "附录"),
     ("档案归档", "档案归档",       None,             443, "附录"),
     ("感谢名单", "感谢名单",       "SPECIAL THANKS", 450, "附录"),
 ]
+
+# A printed page that belongs to a section it is not adjacent to.
+#
+# Sections are otherwise contiguous — a marker's page through the page before
+# the next marker — and that holds for the whole book except the chronology:
+# 泰拉纪年 runs 428-430, but its actual chart (泰拉纪年：年表 / TIMELINE OF
+# TERRAN HISTORY: CHART) is printed on the very last page, 453, behind the
+# colophon. Keyed by page so the exception is visible here rather than hidden
+# in off-by-one arithmetic on the ranges.
+PAGE_MOVES = {453: "泰拉纪年"}
+
+# Section titles as they should read, overriding whatever the marker parse or
+# EXTRA_SECTIONS produced.
+#
+# This exists because the alternative does not survive. Chapter titles were
+# being corrected by hand in the `chapters` table — mostly restoring the
+# English name that MinerU dropped or truncated (伊比利亚 -> 伊比利亚 IBERIA,
+# 玻利瓦尔 BOLÍ -> BOLÍVAR) — and `import_book.py` deletes and re-inserts every
+# chapter on each run, so the next import silently reverted all of them. Same
+# reasoning as data/book_corrections.json: an edit that a re-run destroys has
+# to live in the repo, where it is diffable and re-applied every time.
+SECTION_TITLES = {
+    "5.6":     "伊比利亚 IBERIA",
+    "5.8":     "谢拉格 KJERAG",
+    "5.10":    "哥伦比亚 COLUMBIA",
+    "5.10.1":  "荒地拾遗 THE COLUMBIAN PIONEERS",
+    "5.10.2":  "汐斯塔 SIESTA",
+    "5.11":    "玻利瓦尔 BOLÍVAR",
+    "5.13":    "萨尔贡 SARGON",
+    "5.14":    "米诺斯 MINOS",
+    "5.15":    "萨米 SAMI",
+    "5.16":    "雷姆必拓 RIM BILLITON",
+    "5.18":    "极东来信 HIGASHI: LETTERS FROM THE FARTHEST",
+    "5.19":    "卡兹戴尔 KAZDEL",
+    "6":       "组织 ORGANISATIONS IN TERRA",
+    "6.1":     "莱茵生命 RHINE LAB LLC.",
+    "6.1.1":   "追记 RHINE LAB LLC.: AN ADDENDUM",
+    "6.1.2":   "独家发布 EXCLUSIVE INTERVIEW",
+    "6.3":     "喀兰贸易 KARLAN TRADE CO' LTD.",
+    "6.4":     "锈锤 RUSTHAMMER",
+    "6.6":     "太阳谷机械工业 SUNVALLEY INDUSTRIES",
+    "6.9":     "组织名录 A DIRECTORY OF ORGANISATIONS",
+    "6.Extra": "罗德岛生活指南 RHODES ISLAND Onboard Guide",
+}
 FRONT    = {"number": "卷首", "title": "卷首", "title_en": "FRONT MATTER"}
 APPENDIX = {"number": "附录", "title": "附录", "title_en": "APPENDIX"}
 TOC_PAGES = {6, 7}
@@ -323,6 +372,14 @@ def main() -> None:
     for number, title, title_en, page, chapter in EXTRA_SECTIONS:
         markers.append({"number": number, "title": title, "title_en": title_en,
                         "page": page, "block": -1, "chapter": chapter})
+    for mk in markers:
+        if mk["number"] in SECTION_TITLES:
+            mk["title"] = SECTION_TITLES[mk["number"]]
+    stale = sorted(set(SECTION_TITLES) - {m["number"] for m in markers})
+    if stale:
+        # A title for a section that no longer exists is reported rather than
+        # ignored — it usually means a marker moved, not that the title is junk.
+        log.warning(f"  {len(stale)} SECTION_TITLES entr(ies) match no section: {stale}")
     markers.sort(key=lambda m: (m["page"], m["block"]))
     log.info(f"{len(markers)} section marker(s)")
 
@@ -338,8 +395,16 @@ def main() -> None:
         end = markers[idx + 1]["page"] - 1 if idx + 1 < len(markers) else pages[-1]["page"]
         end = max(end, start)
 
+        # The section's own range, minus any page reassigned elsewhere, plus any
+        # page reassigned to it from outside the range (see PAGE_MOVES).
+        own = [p for p in range(start, end + 1)
+               if PAGE_MOVES.get(p, mk["number"]) == mk["number"]]
+        own += [p for p, num in PAGE_MOVES.items()
+                if num == mk["number"] and not (start <= p <= end)]
+        own.sort()
+
         chunks = []
-        for pno in range(start, end + 1):
+        for pno in own:
             p = by_page.get(pno)
             if not p:
                 continue
