@@ -26,6 +26,12 @@ export interface PageDraft {
   /** True when the text came from a saved override rather than the import. */
   overridden: boolean
   note: string | null
+  /**
+   * True when what the reader sees matches this text. False means a saved draft
+   * has not been applied to `nodes` — which nothing will do on its own, since
+   * the import that used to pick it up is no longer allowed to run.
+   */
+  applied: boolean
 }
 
 interface NodeRow {
@@ -90,10 +96,6 @@ export async function getPageDraft(page: number): Promise<PageDraft | { error: s
   if (!(await isCurrentUserAdmin())) return { error: '无权限（仅管理员）' }
   const db = await createClient()
 
-  const { data: ov } = await db.from('book_page_overrides')
-    .select('body, note').eq('page', page).maybeSingle()
-  if (ov) return { page, body: ov.body, overridden: true, note: ov.note }
-
   // `raw_params->>page` is the printed page; nodes are ordered by seq within a
   // chapter, and a page never spans two chapters, so seq is the page's order.
   const { data: nodes } = await db.from('nodes')
@@ -101,8 +103,20 @@ export async function getPageDraft(page: number): Promise<PageDraft | { error: s
     .eq('raw_params->>page', String(page))
     .order('seq')
   const rows = (nodes ?? []) as unknown as NodeRow[]
-  if (rows.length === 0) return { error: `第 ${page} 页没有已导入的内容` }
-  return { page, body: toText(rows), overridden: false, note: null }
+  const live = rows.length ? toText(rows) : null
+
+  const { data: ov } = await db.from('book_page_overrides')
+    .select('body, note').eq('page', page).maybeSingle()
+  if (ov) {
+    // A saved override that does not match the nodes is a draft nobody is
+    // reading. That used to be fine — "takes effect at the next import" — but
+    // the import is no longer allowed to run, so an unapplied draft is now a
+    // silent divergence between this editor and the page, and has to be said.
+    return { page, body: ov.body, overridden: true, note: ov.note,
+             applied: live !== null && ov.body.trim() === live.trim() }
+  }
+  if (live === null) return { error: `第 ${page} 页没有已导入的内容` }
+  return { page, body: live, overridden: false, note: null, applied: true }
 }
 
 export async function savePageOverride(
@@ -172,9 +186,37 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
   const chapterId = rows[0].chapter_id
   const seqs = rows.map(r => r.seq).sort((a, b) => a - b)
   const blocks = body(ov.body)
-  if (blocks.length > seqs.length) {
-    return { ok: false, error: `修订后有 ${blocks.length} 段，多于原有的 ${seqs.length} 段；` +
-                               `请重新运行 import_book.py 以重建该章节` }
+
+  // A page may now hold MORE paragraphs than it was imported with. It has to:
+  // splitting a paragraph the OCR ran together is the commonest correction
+  // there is, and this used to refuse and tell you to re-run import_book.py —
+  // which now refuses in turn, because the database is the authority. So the
+  // rest of the chapter is shifted down to make room.
+  //
+  // Safe because `(chapter_id, seq)` is a plain index, not a unique constraint
+  // (002), so the shift cannot collide mid-flight. Shrinking deliberately does
+  // NOT shift back: leaving a gap in seq costs nothing — seq is only an
+  // ordering — while rewriting the tail twice per edit would not be.
+  const grow = blocks.length - rows.length
+  if (grow > 0) {
+    const hi = seqs[seqs.length - 1]
+    const tail: { id: number; seq: number }[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await db.from('nodes')
+        .select('*').eq('chapter_id', chapterId).gt('seq', hi)
+        .order('seq').range(from, from + 999)
+      if (error) return { ok: false, error: error.message }
+      tail.push(...(data ?? []) as { id: number; seq: number }[])
+      if ((data ?? []).length < 1000) break
+    }
+    if (tail.length) {
+      // Whole rows, because an upsert still evaluates its INSERT tuple and the
+      // table has NOT NULL columns — sending only {id, seq} would be rejected
+      // before the conflict clause ever ran.
+      const { error } = await db.from('nodes')
+        .upsert(tail.map(n => ({ ...n, seq: n.seq + grow })), { onConflict: 'id' })
+      if (error) return { ok: false, error: `无法为新增段落腾出位置：${error.message}` }
+    }
   }
 
   // Verify the delete actually removed the old nodes before inserting the new
@@ -197,7 +239,10 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
     const sha1s = await Promise.all(imgs.map(f => sha1(`book-images/${f}`)))
     return {
       chapter_id: chapterId,
-      seq: seqs[i],
+      // Count up from the page's first slot rather than reusing seqs[i], which
+      // is undefined past the original paragraph count. The tail was shifted by
+      // `grow` above, so lo … lo+blocks.length-1 is free either way.
+      seq: seqs[0] + i,
       type: imgs.length ? 'cgitem' : 'subtitle',
       speaker: imgs.length ? null : 'narrator',
       content: imgs.length ? null : b.text,

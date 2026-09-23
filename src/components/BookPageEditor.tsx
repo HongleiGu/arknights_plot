@@ -9,9 +9,15 @@
 // would need a separate control for each, and would still need stable paragraph
 // identity across a re-OCR — which doesn't exist.
 //
-// Saving writes to `book_page_overrides` (040), never to `nodes` directly:
-// import_book.py replaces every node of the book on each run, so an edit made
-// in `nodes` alone would be silently destroyed by the next import.
+// Saving writes `book_page_overrides` (040) AND applies it to `nodes`. The
+// override table is no longer a queue for the next import — import_book.py now
+// refuses to touch a book that already exists, because the database is the
+// authority for it. It is kept as the durable record of what was edited by
+// hand: the one thing a deliberate `--rebuild` still reads back.
+//
+// So "仅存草稿" means exactly that and nothing more — the reader keeps seeing
+// the old text until it is applied, and the panel says so in red. It used to
+// claim the next import would pick it up, which is now never true.
 
 import { useState } from 'react'
 import {
@@ -23,6 +29,7 @@ export default function BookPageEditor({ page }: { page: number }) {
   const [body, setBody] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [overridden, setOverridden] = useState(false)
+  const [applied, setApplied] = useState(true)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
@@ -31,7 +38,8 @@ export default function BookPageEditor({ page }: { page: number }) {
     const d = await getPageDraft(page)
     setBusy(false)
     if ('error' in d) { setMsg(d.error); return }
-    setBody(d.body); setOverridden(d.overridden); setLoaded(true); setOpen(true)
+    setBody(d.body); setOverridden(d.overridden); setApplied(d.applied)
+    setLoaded(true); setOpen(true)
   }
 
   async function save(andApply: boolean) {
@@ -39,9 +47,15 @@ export default function BookPageEditor({ page }: { page: number }) {
     const r = await savePageOverride(page, body)
     if (!r.ok) { setBusy(false); setMsg(r.error ?? '保存失败'); return }
     setOverridden(true)
-    if (!andApply) { setBusy(false); setMsg('已保存（下次导入时生效）'); return }
+    if (!andApply) {
+      // Deliberately NOT "takes effect at the next import" — there is no next
+      // import; import_book.py refuses to touch a book that already exists.
+      setApplied(false); setBusy(false)
+      setMsg('已存草稿，阅读页未改变'); return
+    }
     const a = await applyPageOverride(page)
     setBusy(false)
+    setApplied(a.ok)
     setMsg(a.ok ? `已保存并应用（${a.count} 段）` : `已保存，但应用失败：${a.error}`)
   }
 
@@ -50,7 +64,7 @@ export default function BookPageEditor({ page }: { page: number }) {
     const r = await clearPageOverride(page)
     setBusy(false)
     if (!r.ok) { setMsg(r.error ?? '清除失败'); return }
-    setOverridden(false); setLoaded(false); setOpen(false)
+    setOverridden(false); setApplied(true); setLoaded(false); setOpen(false)
     setMsg('已清除修订，重新载入以查看导入原文')
   }
 
@@ -73,6 +87,7 @@ export default function BookPageEditor({ page }: { page: number }) {
       <p className="font-mono text-[10px] text-ark-muted tracking-widest uppercase">
         {'//'} 校订 · 第 {page} 页
         {overridden && <span className="text-ark-accent"> · 已有修订</span>}
+        {!applied && <span className="text-ark-danger"> · 草稿未应用，阅读页仍是旧版</span>}
       </p>
       <p className="text-[10px] text-ark-muted leading-relaxed">
         空行分段；<code className="text-ark-text">{'# '}</code>～
@@ -111,7 +126,7 @@ export default function BookPageEditor({ page }: { page: number }) {
                 className="px-3 py-1 border border-ark-border text-ark-muted
                            hover:text-ark-accent hover:border-ark-accent-dim
                            disabled:opacity-40 transition-colors">
-          仅保存
+          仅存草稿
         </button>
         {overridden && (
           <button onClick={reset} disabled={busy}
