@@ -91,10 +91,12 @@ STEPS = [
     # runs the scraper itself. Metadata alone is ~550 requests.
     ("scomic",   "scrape_comics.py",            lambda a: ["--no-pages"],                 True),
     ("comics",   "import_comics.py",            lambda a: [],                             False),
-    # Import only. OCR (ocr_book.py, ~3.6h) and structuring (structure_book.py)
-    # are standalone: they need a local scan, not the network, and are a
-    # one-time job. No-op when data/book_sections.json is absent.
-    ("book",     "import_book.py",              lambda a: [],                             False),
+    # 大地巡旅 is deliberately NOT a step. import_book.py replaces every chapter
+    # and node of the book, and the database is the authority for it — the text
+    # is proofread page by page and the chapters are restructured by hand, none
+    # of which book_sections.json knows about. As a pipeline step a routine
+    # `--sync` would quietly undo all of it. It is now run by hand, and refuses
+    # to touch a book that already exists unless given --rebuild.
     ("wiki",     "import_wiki_descriptions.py", lambda a: [],                             False),
     ("pages",    "scrape_story_pages.py",       lambda a: [],                             False),
     ("upload",   "upload_story_images.py",      lambda a: [],                             False),

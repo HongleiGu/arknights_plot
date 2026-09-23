@@ -312,9 +312,30 @@ def _execute(query, what: str):
     raise RuntimeError(f"{what} failed after {MAX_RETRIES} attempts") from last
 
 
+def _book_chapter_ids(db: Client) -> list[int]:
+    """Chapter ids of the already-imported book, or [] on a first run."""
+    stories = _execute(db.table("stories").select("id").eq("category", CATEGORY),
+                       "select book stories").data or []
+    if not stories:
+        return []
+    ids, start = [], 0
+    while True:
+        rows = _execute(db.table("chapters").select("id")
+                        .in_("story_id", [s["id"] for s in stories])
+                        .range(start, start + 999), "select book chapters").data or []
+        ids += [r["id"] for r in rows]
+        if len(rows) < 1000:
+            return ids
+        start += 1000
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Import the 大地巡旅 settings book.")
     ap.add_argument("--dry-run", action="store_true", help="report, write nothing")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="DESTRUCTIVE: wipe the imported book and rebuild it from "
+                         "book_sections.json, discarding anything edited in the "
+                         "database since. Refuses without this once the book exists.")
     args = ap.parse_args()
 
     if not BOOK_JSON.exists():
@@ -341,6 +362,39 @@ def main() -> None:
         os.environ["SUPABASE_URL"],
         os.environ["SUPABASE_SERVICE_ROLE_KEY"],
     )
+
+    # This import is a BOOTSTRAP, not a sync. It replaces every chapter and node
+    # of the book, so once the book exists the database — not this script — is
+    # the authority: the text is proofread page by page in the admin editor, and
+    # chapters are restructured by hand. A re-run would silently discard all of
+    # it, which it has done twice (23 chapter titles reverted, a hand-deleted
+    # section restored).
+    #
+    # So it refuses rather than warns. `import_comics.py` reaches the same place
+    # by upserting on file_path, because comic episodes carry hand-attached
+    # panel text; the book cannot upsert as cheaply, because a node's identity
+    # is (chapter, seq) and seq shifts whenever a page's paragraph count changes.
+    # Refusing is the honest version of the same rule.
+    cids = _book_chapter_ids(db)
+    existing = (_execute(db.table("nodes").select("id", count="exact")
+                         .in_("chapter_id", cids).limit(1),
+                         "count existing book nodes").count or 0) if cids else 0
+    if existing and not args.rebuild:
+        log.error(
+            f"the book is already imported ({existing:,} nodes) and the database "
+            f"is the source of truth for it.\n"
+            f"  This script REPLACES every chapter and node, discarding "
+            f"proofreading and any hand-made structure.\n"
+            f"  Edits belong in the admin editor (/大地巡旅 -> 校订), OCR fixes in "
+            f"data/book_corrections.json,\n"
+            f"  titles in SECTION_TITLES and structure in EXTRA_SECTIONS / "
+            f"PAGE_MOVES (scripts/mineru_book.py).\n"
+            f"  If you really do want to rebuild from book_sections.json, pass "
+            f"--rebuild.")
+        raise SystemExit(1)
+    if existing:
+        log.warning(f"--rebuild: replacing {existing:,} existing node(s); "
+                    f"only book_page_overrides survives this")
 
     # Drop the earlier text_clusters shape (chunks cascade).
     legacy = _execute(db.table("stories").select("id")
