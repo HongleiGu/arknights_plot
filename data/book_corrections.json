@@ -1,0 +1,45 @@
+{
+  "_comment": "Hand corrections to the OCR of 大地巡旅. Applied by scripts/mineru_book.py on every run, so they survive re-imports — never edit the nodes table directly, import_book.py replaces it wholesale. Run scripts/check_book_ocr.py for a ranked list of candidates; its 1-substitution tier is the working list.",
+  "_fields": "wrong / right are literal strings. Add `pages: [n, …]` to scope a replacement when the wrong form is a real word elsewhere. A rule that matches nothing is reported as stale on the next run.",
+  "replacements": [
+    {
+      "wrong": "哥体比亚",
+      "right": "哥伦比亚",
+      "note": "p309"
+    },
+    {
+      "wrong": "哥作比亚",
+      "right": "哥伦比亚",
+      "note": "p176"
+    },
+    {
+      "wrong": "乌申斯",
+      "right": "乌萨斯",
+      "note": "p302"
+    },
+    {
+      "wrong": "线结识的",
+      "right": "我结识的",
+      "pages": [
+        2
+      ],
+      "note": "献词"
+    },
+    {
+      "wrong": "线不过比其他人",
+      "right": "我不过比其他人",
+      "pages": [
+        2
+      ],
+      "note": "献词"
+    },
+    {
+      "wrong": "战还是产生",
+      "right": "我还是产生",
+      "pages": [
+        3
+      ],
+      "note": "献词"
+    }
+  ]
+}

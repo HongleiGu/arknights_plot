@@ -40,8 +40,17 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# all the data is in the database, no need to upload to git
-/data 
+# all the data is in the database, no need to upload to git.
+# `/data/*` rather than `/data` so git still descends into the directory —
+# a file inside a wholly-ignored directory cannot be re-included.
+/data/*
+
+# …except the book's hand-written OCR corrections. These are the one thing
+# under data/ that is authored rather than derived: 1.3 KB of wrong/right pairs
+# that no re-run can reproduce, and that the next import silently re-applies.
+# CLAUDE.md has always said they are "diffable in git"; until now they were not
+# in git at all, so the single copy lived on one machine.
+!/data/book_corrections.json
 
 /.next
 /.claude
