@@ -205,17 +205,44 @@ def query_one(table: str, col: str, val) -> dict | None:
     return res.data[0] if res.data else None
 
 
-def truncate_content_tables():
-    """Delete all rows from content tables in dependency order.
+# Categories this script does NOT own, and must not delete under --force.
+#
+# They are hand-edited and cannot be rebuilt from data/plots/: 大地巡旅 is
+# proofread page by page in the admin editor with its chapters restructured by
+# hand, and 漫画 carries panel text attached to episodes (AP-33). Everything
+# else here is scraped, so wiping and re-parsing it is exactly what --force is
+# for.
+#
+# This used to be an unqualified delete of every content table. That was
+# survivable only because `book` was a pipeline step, so --force wiped the book
+# and the very next step rebuilt it. Once the book stopped being a step — it now
+# refuses to overwrite the database — the same --force deleted it with nothing
+# left to restore it. Scoping the wipe is what makes "the database is the
+# authority" true even on the destructive path.
+PROTECTED_CATEGORIES = ("大地巡旅", "漫画")
 
-    Deleting predicate_branches first cascades (nodes_branch_fk ON DELETE
-    CASCADE) into the branch rows of `nodes`; the remaining main-sequence
-    rows go when `nodes` itself is cleared.
+
+def truncate_content_tables():
+    """Delete the scraped content, leaving hand-edited categories alone.
+
+    Children cascade: chapters -> stories and nodes/scenes/decisions/
+    chapter_descriptions -> chapters are all ON DELETE CASCADE (002), so
+    removing the doomed stories removes everything under them.
     """
-    for table in ("predicate_branches", "decisions", "nodes", "scenes",
-                  "chapter_descriptions", "chapters", "stories"):
-        _execute(supabase.table(table).delete().neq("id", 0),
-                 f"truncate {table}")
+    rows = _execute(supabase.table("stories").select("category"),
+                    "list categories").data or []
+    doomed = sorted({r["category"] for r in rows
+                     if r["category"] not in PROTECTED_CATEGORIES})
+    kept = sorted({r["category"] for r in rows if r["category"] in PROTECTED_CATEGORIES})
+    if kept:
+        log.info(f"  keeping hand-edited categor{'y' if len(kept) == 1 else 'ies'}: "
+                 f"{', '.join(kept)}")
+    if not doomed:
+        return
+    log.info(f"  deleting {len(doomed)} scraped categor"
+             f"{'y' if len(doomed) == 1 else 'ies'}: {', '.join(doomed)}")
+    _execute(supabase.table("stories").delete().in_("category", doomed),
+             "truncate scraped stories")
 
 
 # Cache (category, story_name) → stories.id during a run.

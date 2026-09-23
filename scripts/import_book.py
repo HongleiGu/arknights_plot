@@ -385,10 +385,12 @@ def main() -> None:
             f"is the source of truth for it.\n"
             f"  This script REPLACES every chapter and node, discarding "
             f"proofreading and any hand-made structure.\n"
-            f"  Edits belong in the admin editor (/大地巡旅 -> 校订), OCR fixes in "
-            f"data/book_corrections.json,\n"
-            f"  titles in SECTION_TITLES and structure in EXTRA_SECTIONS / "
-            f"PAGE_MOVES (scripts/mineru_book.py).\n"
+            f"  Text is edited at /大地巡旅 (the 校订 button on each page); "
+            f"structure at /admin/book.\n"
+            f"  data/book_corrections.json, SECTION_TITLES and EXTRA_SECTIONS / "
+            f"PAGE_MOVES no longer take effect\n"
+            f"  on their own — they are what a --rebuild would REPRODUCE, not a "
+            f"live edit path.\n"
             f"  If you really do want to rebuild from book_sections.json, pass "
             f"--rebuild.")
         raise SystemExit(1)
