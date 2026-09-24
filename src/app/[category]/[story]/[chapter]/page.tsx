@@ -65,12 +65,19 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // leading order int is load-bearing, and the lookup is scoped to the
   // (category, name) story — so a chapter can't be reached under the wrong
   // story, and the slug tail is free to change without breaking links.
-  const { data: story } = await supabase
-    .from('stories')
-    .select('id')
-    .eq('category', category)
-    .eq('name', storyName)
-    .maybeSingle()
+  // The admin check depends on nothing but the session, so it rides along with
+  // the first query instead of blocking behind the nodes. One fewer wait.
+  const isBook = category === '大地巡旅'
+  const adminP = isBook ? isCurrentUserAdmin() : Promise.resolve(false)
+
+  const [{ data: story }] = await Promise.all([
+    supabase.from('stories')
+      .select('id')
+      .eq('category', category)
+      .eq('name', storyName)
+      .maybeSingle(),
+    adminP,
+  ])
 
   if (!story) notFound()
 
@@ -91,34 +98,53 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // Branch dialogue now also lives in `nodes` (branch_id set); the linear
   // reading flow is only the main sequence, so exclude branch rows here.
   // They're fetched separately in step 3 and surfaced via DecisionBlock.
-  const { count: totalNodes } = await supabase
+  // The count and the rows come back from ONE request. PostgREST returns both
+  // for a ranged select with count=exact, and a round trip here costs ~170ms
+  // whatever it carries — the trivial 11-byte query and the 36KB page of nodes
+  // time the same — so the number of round trips is the whole cost model. A
+  // page that asks for more than exists is the only case needing a second one.
+  const pageQuery = (n: number) => supabase
     .from('nodes')
-    .select('id', { count: 'exact', head: true })
-    .eq('chapter_id', chapterId)
-    .is('branch_id', null)
-
-  const total      = totalNodes ?? 0
-  const pageCount  = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const safePage   = Math.min(page, pageCount)
-  const offset     = (safePage - 1) * PAGE_SIZE
-
-  const { data: nodes } = await supabase
-    .from('nodes')
-    .select('id, seq, type, speaker, content, raw_params')
+    .select('id, seq, type, speaker, content, raw_params', { count: 'exact' })
     .eq('chapter_id', chapterId)
     .is('branch_id', null)
     .order('seq')
-    .range(offset, offset + PAGE_SIZE - 1)
+    .range((n - 1) * PAGE_SIZE, (n - 1) * PAGE_SIZE + PAGE_SIZE - 1)
+
+  let { data: nodes, count: totalNodes } = await pageQuery(page)
+  const total      = totalNodes ?? 0
+  const pageCount  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage   = Math.min(page, pageCount)
+  if (safePage !== page) ({ data: nodes } = await pageQuery(safePage))
 
   const nodeList: NodeRow[] = (nodes ?? []) as NodeRow[]
   const nodeIds = nodeList.map(n => n.id)
+
+  // Started here, awaited far below. Neither depends on anything between, so
+  // they fly while the decision chain and the comment counts are fetched —
+  // taking two ~170ms round trips off the critical path without disturbing the
+  // decision code, which is a nest of closures and the riskiest thing here to
+  // rearrange. Not Promise.all: these are awaited at their own use sites.
+  const backlinksP = boardBacklinks([
+    { type: 'story', id: story.id },
+    { type: 'chapter', id: chapterId },
+    ...nodeIds.map(id => ({ type: 'node', id })),
+  ])
+  const supplementP = (safePage === pageCount && chapter.level_code)
+    ? supabase
+        .from('text_clusters')
+        .select('seq, text_chunks(id, seq, title, body)')
+        .eq('story_id', chapter.story_id)
+        .eq('kind', 'ending_supplement')
+        .eq('level_code', chapter.level_code)
+        .order('seq')
+    : null
 
   // Proofreading affordance for the settings book: an admin gets a per-page
   // editor inline with the text, so a correction is made while looking at the
   // paragraph rather than in a separate tool. Only asked for on that category —
   // this is an editorial surface, not a general feature.
-  const isBook = category === '大地巡旅'
-  const canEdit = isBook && await isCurrentUserAdmin()
+  const canEdit = await adminP
   // First node of each printed page. Computed for ANY reader, not only an
   // admin: the scan toggle is public (the text is OCR and the plates are crops,
   // so the page's layout exists nowhere else), while the editor below it is
@@ -255,11 +281,7 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // ---- 4b. Board backlinks (AP-13) ----
   // Which clue boards reference this chapter / story / any visible node.
   // Visibility-filtered inside the action (public + own + shared only).
-  const backlinks = await boardBacklinks([
-    { type: 'story', id: story.id },
-    { type: 'chapter', id: chapterId },
-    ...nodeIds.map(id => ({ type: 'node', id })),
-  ])
+  const backlinks = await backlinksP
   const chapterBacklinks = [
     ...(backlinks[`chapter/${chapterId}`] ?? []),
     ...(backlinks[`story/${story.id}`] ?? []),
@@ -271,14 +293,8 @@ export default async function ChapterPage({ params, searchParams }: Props) {
   // the whole narrative, so fetched + shown only on the last page.
   type SupChunk = { id: number; seq: number; title: string | null; body: string }
   const supplementChunks: SupChunk[] = []
-  if (safePage === pageCount && chapter.level_code) {
-    const { data: clusters } = await supabase
-      .from('text_clusters')
-      .select('seq, text_chunks(id, seq, title, body)')
-      .eq('story_id', chapter.story_id)
-      .eq('kind', 'ending_supplement')
-      .eq('level_code', chapter.level_code)
-      .order('seq')
+  if (supplementP) {
+    const { data: clusters } = await supplementP
     if (clusters) {
       // Flatten clusters (ordered by seq) → chunks (ordered by chunk.seq).
       const sorted = [...clusters].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
