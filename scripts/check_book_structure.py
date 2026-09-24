@@ -179,7 +179,12 @@ def main() -> None:
         pgs = sorted(pages_of.get(c["id"], ()))
         if len(pgs) < 2:
             continue
-        gaps = {p for p in pgs if p - 1 not in pgs and p != pgs[0]}
+        # A blank leaf between two pages is not a gap in the chapter — there is
+        # simply nothing on it to store. Without this, 5.10 (blank p244) and
+        # 感谢名单 (blank p451) were reported as broken every run, which is the
+        # fastest way to teach someone to ignore the checker.
+        present = set(pgs) | EXPECTED_BLANK
+        gaps = {p for p in pgs if p - 1 not in present and p != pgs[0]}
         expected = EXPECTED_GAPS.get(c["level_code"], set())
         unexpected = gaps - expected
         if unexpected:

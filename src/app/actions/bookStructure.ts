@@ -250,6 +250,25 @@ async function renumber(db: Awaited<ReturnType<typeof createClient>>, chapterId:
   await db.from('nodes').upsert(next, { onConflict: 'id' })
 }
 
+/**
+ * Renumber a story's chapters 1..N.
+ *
+ * Runs automatically after a delete, but a chapter removed in SQL leaves the
+ * gap behind — and order_in_story is the URL segment, so the missing number
+ * 404s. Exposed as its own button because that is the only way to repair it
+ * without going back to SQL, which is what /admin/book exists to avoid.
+ */
+export async function compactChapterOrder(
+  storyId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const bad = await guard()
+  if (bad) return { ok: false, error: bad }
+  const db = await createClient()
+  await compactOrder(db, storyId)
+  revalidatePath('/大地巡旅', 'layout')
+  return { ok: true }
+}
+
 /** Keep order_in_story at 1..N — it is the URL segment, so gaps misaddress. */
 async function compactOrder(db: Awaited<ReturnType<typeof createClient>>, storyId: number) {
   const { data } = await db.from('chapters')

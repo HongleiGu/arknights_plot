@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react'
 import {
   getBookStructure, renameChapter, deleteChapter, movePage, dropDuplicatePage,
-  type StructureReport, type ChapterInfo,
+  compactChapterOrder, type StructureReport, type ChapterInfo,
 } from '@/app/actions/bookStructure'
 
 /** "417-426" / "428-430, 453" — the shape of a chapter at a glance. */
@@ -100,8 +100,17 @@ export default function BookStructure() {
 
       {byStory.map(({ story, chapters }) => (
         <section key={story.id} className="space-y-1">
-          <h3 className="font-mono text-[11px] text-ark-accent tracking-widest uppercase">
-            {'//'} {story.name} · {chapters.length} 章
+          <h3 className="font-mono text-[11px] text-ark-accent tracking-widest uppercase
+                         flex items-center gap-3">
+            <span>{'//'} {story.name} · {chapters.length} 章</span>
+            {chapters.some((c, i) => c.order !== i + 1) && (
+              <button disabled={busy} onClick={() => void run(
+                compactChapterOrder(story.id), '已重排编号')}
+                      className="normal-case tracking-normal text-[10px] text-ark-danger/80
+                                 hover:text-ark-danger">
+                编号不连续，重排
+              </button>
+            )}
           </h3>
           <table className="w-full text-xs">
             <tbody>
