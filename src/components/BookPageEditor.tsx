@@ -103,6 +103,10 @@ export default function BookPageEditor({ page }: { page: number }) {
         <code className="text-ark-text">{'>'}</code> 是原文内容，不是标记。
         同一插入块内分段用只写 <code className="text-ark-text">{'>>'}</code> 的空行，
         <b className="text-ark-text">真正的空行会另起一个插入块</b>（各自一条标线）。
+        <code className="text-ark-text">{'" '}</code>开头为引文段落
+        （原样转录的文件、书信、病历、记录），排成浅底方块；
+        与插入段落叠加写作 <code className="text-ark-text">{'>> " 三岁，常规体检。'}</code>。
+        整段引文<b className="text-ark-text">不要</b>用加粗或斜体代替。
         行内可用 <code className="text-ark-text">{'**加粗**'}</code>、
         <code className="text-ark-text">{'*斜体*'}</code>、
         <code className="text-ark-text">{'***两者***'}</code>；

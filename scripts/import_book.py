@@ -105,6 +105,20 @@ HEAD_LINE = re.compile(r"^(#{1,5})\s+(.*)$", re.S)
 # character on the first save — silent corruption presenting as a formatting
 # change. `>> ` occurs in none of the 3,904 paragraphs.
 ASIDE_LINE = re.compile(r"^>>[ \t]?", re.M)
+# `" ` marks a quoted passage — a document reproduced inside the text rather
+# than described by it: the case-file entries in p185's 把灯关上看看, a letter,
+# a transcript. Distinct from emphasis, which is why it exists: the alternative
+# was bolding or italicising a page of quoted record, which says "read this
+# harder" rather than "this is not the author speaking".
+#
+# A single `"` rather than a doubled marker, on the same grounds as `#`: it
+# collides with nothing. Measured over all 3,925 non-empty lines of the book, 0
+# begin with `"` — Chinese print quotes with “ ” and 「 」, and both are common
+# (153 lines start with “), so the ASCII form is free.
+#
+# Stacks with the aside marker as `>> " …`; stripped per line so a multi-line
+# quotation inside one paragraph does not keep its markers as text.
+QUOTE_LINE = re.compile(r'^"[ \t]?', re.M)
 # How an image token survives the blank-line split. It is replaced by a
 # newline-free placeholder, the body is split into blocks, and the placeholder
 # is swapped back afterwards.
@@ -171,6 +185,10 @@ def page_to_text(chunks: list[dict]) -> str:
             lvl = c.get("level") or (1 if c.get("heading") else 0)
             head = "#" * min(lvl, 5) + " " if lvl else ""
             piece = head + c["text"]
+            # Markers nest outwards: the quote mark sits inside the aside mark,
+            # so a quoted line in an inserted block reads `>> " …`.
+            if c.get("quote"):
+                piece = "\n".join('" ' + ln for ln in piece.split("\n"))
             if aside:
                 piece = "\n".join(">> " + ln for ln in piece.split("\n"))
         else:
@@ -211,7 +229,13 @@ def text_to_page(body: str, page: int) -> list[dict]:
         return {"aside": True, **({"aside_start": True} if start else {})}
 
     def push_text(t: str, aside: bool, start: bool) -> None:
-        if (hm := HEAD_LINE.match(t)):
+        # Quote before heading, and exclusive with it: a quoted passage is
+        # reproduced verbatim, so a `#` inside one is part of what was quoted.
+        if QUOTE_LINE.match(t):
+            chunks.append({"page": page, "quote": True,
+                           "text": QUOTE_LINE.sub("", t).strip(),
+                           **flags(aside, start)})
+        elif (hm := HEAD_LINE.match(t)):
             chunks.append({"page": page, "text": hm.group(2).strip(),
                            "heading": True, "level": len(hm.group(1)),
                            **flags(aside, start)})
@@ -543,7 +567,8 @@ def main() -> None:
                                **({"heading": True} if c.get("heading") else {}),
                                **({"level": c["level"]} if c.get("level") else {}),
                                **({"aside": True} if c.get("aside") else {}),
-                               **({"aside_start": True} if c.get("aside_start") else {})},
+                               **({"aside_start": True} if c.get("aside_start") else {}),
+                               **({"quote": True} if c.get("quote") else {})},
             })
 
     done = 0

@@ -42,6 +42,7 @@ interface NodeRow {
     page?: number; image?: string; images?: string[]
     caption?: string; captions?: (string | null)[]
     heading?: boolean; level?: number; aside?: boolean; aside_start?: boolean
+    quote?: boolean
   } | null
 }
 
@@ -73,6 +74,9 @@ function toText(nodes: NodeRow[]): string {
     } else if (n.content) {
       const lvl = rp.level ?? (rp.heading ? 1 : 0)
       piece = (lvl ? '#'.repeat(Math.min(lvl, 5)) + ' ' : '') + n.content
+      // Markers nest outwards: the quote mark sits inside the aside mark, so a
+      // quoted line in an inserted block reads `>> " …`.
+      if (rp.quote) piece = piece.split('\n').map(x => `" ${x}`).join('\n')
       if (aside) piece = piece.split('\n').map(x => `>> ${x}`).join('\n')
     } else {
       continue
@@ -261,7 +265,8 @@ export async function applyPageOverride(page: number): Promise<{ ok: boolean; er
             ...(b.aside ? { aside: true } : {}),
             // First chunk of its block. Without it two blocks that happen to
             // be adjacent render as one.
-            ...(b.aside_start ? { aside_start: true } : {}) },
+            ...(b.aside_start ? { aside_start: true } : {}),
+            ...(b.quote ? { quote: true } : {}) },
     }
   }))
   const { error } = await db.from('nodes').insert(insert)
@@ -284,6 +289,7 @@ const IMG_TOKEN = /\[\[img:[\s\S]*?\]\]/g
 interface Block {
   text?: string; images?: string[]; captions?: (string | null)[]
   heading?: boolean; level?: number; aside?: boolean; aside_start?: boolean
+  quote?: boolean
 }
 
 // `>> ` marks an inserted block. NOT a single `>`: 11 of the book's paragraphs
@@ -291,6 +297,13 @@ interface Block {
 // single-`>` marker would strip on the first save. Mirrors ASIDE_LINE in
 // import_book.py.
 const ASIDE_LINE = /^>>[ \t]?/gm
+// `" ` marks a quoted passage — a document reproduced in the text rather than
+// described by it (p185's case file, a letter, a transcript). A single `"`
+// because it collides with nothing: 0 of the book's 3,925 non-empty lines start
+// with it, Chinese print using “ ” and 「 」 instead. Mirrors QUOTE_LINE in
+// import_book.py. Stripped per line so a multi-line quotation inside one
+// paragraph does not keep its markers as text.
+const QUOTE_LINE = /^"[ \t]?/gm
 // How an image token survives the blank-line split: it is masked to a
 // newline-free placeholder, the body is split, and the token is swapped back.
 // The first cut LIFTED tokens out instead, which protected a caption running to
@@ -317,6 +330,12 @@ function body(text: string): Block[] {
     aside ? { aside: true, ...(start ? { aside_start: true } : {}) } : {}
 
   const pushText = (t: string, aside: boolean, start: boolean) => {
+    // Quote before heading, and exclusive with it: a quoted passage is
+    // reproduced verbatim, so a `#` inside one is part of what was quoted.
+    if (/^"/.test(t)) {
+      out.push({ text: t.replace(QUOTE_LINE, '').trim(), quote: true, ...flags(aside, start) })
+      return
+    }
     const h = HEAD_LINE.exec(t)
     if (h) out.push({ text: h[2].trim(), heading: true, level: h[1].length, ...flags(aside, start) })
     else out.push({ text: t, ...flags(aside, start) })

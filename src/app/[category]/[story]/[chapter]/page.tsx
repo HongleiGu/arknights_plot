@@ -586,6 +586,7 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   // database render without waiting for a re-import.
   const rp = node.raw_params as {
     level?: number; heading?: boolean; aside?: boolean; source?: string
+    quote?: boolean
   } | null
   const level = rp?.level ?? (rp?.heading ? 1 : 0)
 
@@ -636,6 +637,34 @@ function NodeBody({ node, decision }: { node: NodeRow; decision?: DecisionData }
   // ruled and set smaller so the eye can skip it and rejoin the paragraph after.
   // Must precede the subtitle branch — book text is subtitle nodes, so a later
   // check never runs (the heading renderer hit exactly that).
+  // A quoted passage (`" ` in the editor) — a document reproduced in the text
+  // rather than described by it: p185's case file, a letter, a transcript.
+  //
+  // Set as a tinted panel rather than by weight or slant. Emphasis is the wrong
+  // tool for a page of quoted record — bold or italic says "read this harder",
+  // where what is meant is "this is not the author speaking" — and a run of ten
+  // italic paragraphs is simply harder to read. The tint also survives nesting:
+  // inside an inserted block it sits within that block's rule, so a quotation
+  // in a sidebar still reads as part of the sidebar.
+  //
+  // Must precede the aside and subtitle branches, for the third time in this
+  // component: a quote is an aside row and a subtitle row, so a later check
+  // never runs.
+  if (rp?.quote && node.content) {
+    return (
+      <div className="flex gap-3 py-0.5">
+        {gutter}
+        <blockquote className={`flex-1 ${isAside ? ASIDE : ''}`}>
+          <span className={`block bg-ark-surface/60 border-l border-ark-border
+                            px-3 py-1.5 leading-relaxed whitespace-pre-line
+                            ${isAside ? 'text-xs' : 'text-sm'} text-ark-text/90`}>
+            {fmt(node.content)}
+          </span>
+        </blockquote>
+      </div>
+    )
+  }
+
   if (isAside && node.content) {
     return (
       <div className="flex gap-3 py-1">
