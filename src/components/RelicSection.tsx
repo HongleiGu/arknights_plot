@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import { gadgetIconUrl } from '@/lib/storage'
-import CommentThread from '@/components/CommentThread'
+import CommentThread from '@/components/CommentThreadLazy'
 
 export interface Relic {
   id: number

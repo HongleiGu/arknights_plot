@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { signOut } from '@/app/actions/auth'
 import NotificationBell from '@/components/NotificationBell'
-import Assistant from '@/components/Assistant'
+import Assistant from '@/components/AssistantLazy'
 
 export default async function Header() {
   const supabase = await createClient()

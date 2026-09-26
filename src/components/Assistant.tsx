@@ -23,8 +23,8 @@ const SESSION_HINTS: Record<ConversationVisibility, string> = {
   public: '任何人都能查看这次问答',
 }
 
-export default function Assistant() {
-  const [open, setOpen] = useState(false)
+export default function Assistant({ startOpen = false }: { startOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(startOpen)
   const [input, setInput] = useState('')
   const { turns, busy, send, stop, reset } = useAssistantStream()
   const scrollRef = useRef<HTMLDivElement>(null)

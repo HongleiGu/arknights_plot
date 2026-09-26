@@ -53,6 +53,14 @@ interface Props {
    * straight through it.
    */
   indent?: string
+  /**
+   * Mount already open, and load the thread immediately.
+   *
+   * Set by CommentThreadLazy, which owns the collapsed button and only imports
+   * this module once a reader clicks it. Without this the click would open an
+   * empty panel and need a second one.
+   */
+  startOpen?: boolean
 }
 
 // What the open reply box is aimed at: parentId is the thread root the new
@@ -71,8 +79,10 @@ interface ReplyTarget {
  * reply that @-mentions another comment shows that author + a button to jump
  * to the referenced comment.
  */
-export default function CommentThread({ anchor, initialCount, indent = 'ml-12' }: Props) {
-  const [open,     setOpen]     = useState(false)
+export default function CommentThread({
+  anchor, initialCount, indent = 'ml-12', startOpen = false,
+}: Props) {
+  const [open,     setOpen]     = useState(startOpen)
   const [loaded,   setLoaded]   = useState(false)
   const [comments, setComments] = useState<CommentRow[]>([])
   const [count,    setCount]    = useState(initialCount)
@@ -219,6 +229,30 @@ export default function CommentThread({ anchor, initialCount, indent = 'ml-12' }
       return { ...c, reactions: tallies }
     }))
   }
+
+  // Mounted already open by CommentThreadLazy, which owns the collapsed button
+  // and imports this module only once it is clicked — so the fetch that
+  // `toggle` would have done has to happen here instead.
+  //
+  // `.then` with a live flag rather than an await in the effect body: setting
+  // state synchronously in an effect cascades renders, and a reader can close
+  // the thread before the request lands.
+  useEffect(() => {
+    if (!startOpen) return
+    let live = true
+    Promise.all([listCommentsPage(anchor, 'newest', 0, ROOT_PAGE), isCurrentUserAdmin()])
+      .then(([page, admin]) => {
+        if (!live) return
+        setComments(page.comments)
+        setTotalRoots(page.totalRoots)
+        setRootsFetched(page.comments.filter(c => c.parent_comment_id == null).length)
+        setIsAdmin(admin)
+        setLoaded(true)
+      })
+    return () => { live = false }
+    // Once, on mount: `anchor` is a fresh object each render and would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startOpen])
 
   // Close the conversation panel on Escape.
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import ChapterCard from '@/components/ChapterCard'
-import CommentThread from '@/components/CommentThread'
+import CommentThread from '@/components/CommentThreadLazy'
 import { endingImageUrl } from '@/lib/storage'
 
 export interface SupChunk {

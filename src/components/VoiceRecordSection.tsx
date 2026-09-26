@@ -1,7 +1,7 @@
 'use client'
 
 import { type TextChunk } from '@/components/PersonnelFileSection'
-import CommentThread from '@/components/CommentThread'
+import CommentThread from '@/components/CommentThreadLazy'
 
 export default function VoiceRecordSection({
   chunks,

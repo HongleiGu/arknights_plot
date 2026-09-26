@@ -96,6 +96,8 @@ def main() -> None:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--only", choices=sorted(KINDS))
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--force", action="store_true",
+                   help="re-upload objects that are already in the bucket")
     args = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)-5s %(message)s")
 
@@ -138,12 +140,27 @@ def main() -> None:
         log.info(f"{alias}: {len(keep)} of {len(files)} file(s) referenced by "
                  f"{manifest.name if manifest else 'construction'}"
                  + (f"; skipping {skipped} unreferenced" if skipped else ""))
+        present = 0
         for i, f in enumerate(keep, 1):
             key = f"{prefix}/{sha1_for(f.relative_to(DATA))}.png"
             if args.dry_run:
                 if i <= 3:
                     log.info(f"    {f.name} -> {key}")
                 continue
+            # Skip what is already there. upload_book_pages.py gets this free by
+            # checking whether the local JPEG exists — it renders them — but here
+            # the local file IS the source, so it always exists and nothing was
+            # ever skipped. Adding one illustration re-uploaded all 363 book
+            # plates, ~241 MB, to move one file. The key is the sha1 of the path
+            # and the body is that path's content, so an object that exists is
+            # by construction the right object; --force is for a replaced file.
+            if not args.force:
+                try:
+                    r2.head_object(Bucket=bucket, Key=key)
+                    present += 1
+                    continue
+                except Exception:                     # noqa: BLE001  (404 = absent)
+                    pass
             try:
                 r2.put_object(Bucket=bucket, Key=key, Body=as_png(f),
                               ContentType="image/png",
@@ -154,6 +171,9 @@ def main() -> None:
             total += 1
             if total % 100 == 0:
                 log.info(f"    uploaded {total} …")
+        if present:
+            log.info(f"    {present} already in the bucket, skipped"
+                     + ("" if args.force else " (--force re-uploads them)"))
 
     log.info(f"dry run — nothing uploaded" if args.dry_run else f"uploaded {total} icon(s) to {bucket}")
 

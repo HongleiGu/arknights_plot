@@ -2,7 +2,7 @@ import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import CommentThread from '@/components/CommentThread'
+import CommentThread from '@/components/CommentThreadLazy'
 import DecisionBlock, { type BranchNode } from '@/components/DecisionBlock'
 import { chapterSlug, parseChapterOrder } from '@/lib/chapterSlug'
 import { boardBacklinks, type Backlink } from '@/app/actions/boards'
@@ -111,8 +111,9 @@ export default async function ChapterPage({ params, searchParams }: Props) {
     .order('seq')
     .range((n - 1) * PAGE_SIZE, (n - 1) * PAGE_SIZE + PAGE_SIZE - 1)
 
-  let { data: nodes, count: totalNodes } = await pageQuery(page)
-  const total      = totalNodes ?? 0
+  const first = await pageQuery(page)
+  let nodes = first.data
+  const total      = first.count ?? 0
   const pageCount  = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const safePage   = Math.min(page, pageCount)
   if (safePage !== page) ({ data: nodes } = await pageQuery(safePage))

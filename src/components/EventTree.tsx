@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import CommentThread from '@/components/CommentThread'
+import CommentThread from '@/components/CommentThreadLazy'
 
 export interface OptionNode {
   id: number
