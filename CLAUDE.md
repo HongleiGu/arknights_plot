@@ -4,6 +4,10 @@ Web app for reading Arknights plot text with annotations. Plot data is scraped f
 [prts.wiki](https://prts.wiki) and stored in Supabase. Stack: Next.js (App Router) +
 Clerk auth + Supabase (Postgres + Storage).
 
+This file is why things are the way they are. What is **not done yet** —
+AP-35 onwards, with the measured state that motivates each — is in
+[TICKETS.md](TICKETS.md).
+
 ---
 
 ## Reset & re-bootstrap
