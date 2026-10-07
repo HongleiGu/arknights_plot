@@ -28,7 +28,7 @@ export async function getSummaryStatus(storyId: number): Promise<SummaryStatus> 
   const { data: sums } = await db.from('content_summaries')
     .select('story_id, chapter_id').or(`story_id.eq.${storyId},chapter_id.in.(${chIds.join(',') || 0})`)
   // Curated wiki descriptions count as "done" too — no need to AI-summarize them.
-  const { data: descs } = await db.from('chapter_descriptions')
+  const { data: descs } = await db.from('chapter_description_effective')
     .select('chapter_id').in('chapter_id', chIds.length ? chIds : [0])
 
   const chapterDone = new Set<number>([
@@ -95,7 +95,7 @@ async function _storySummary(g: Guard, storyId: number): Promise<{ ok: boolean; 
   const ids = (chs ?? []).map(c => c.id)
   if (ids.length === 0) return { ok: false, error: '该剧情没有章节' }
   // Prefer curated wiki descriptions, fall back to AI chapter summaries.
-  const { data: descs } = await g.db.from('chapter_descriptions').select('chapter_id, body').in('chapter_id', ids)
+  const { data: descs } = await g.db.from('chapter_description_effective').select('chapter_id, body').in('chapter_id', ids)
   const { data: sums } = await g.db.from('content_summaries').select('chapter_id, summary').in('chapter_id', ids)
   const byChapter = new Map<number, string>()
   for (const s of sums ?? []) if (s.chapter_id != null) byChapter.set(s.chapter_id, s.summary)
@@ -156,7 +156,7 @@ async function backlogIds(db: Db) {
   const [chs, stories, descs, sums] = await Promise.all([
     allIds<{ id: number }>(db, 'chapters', 'id'),
     allIds<{ id: number; description: string | null }>(db, 'stories', 'id, description'),
-    allIds<{ chapter_id: number | null }>(db, 'chapter_descriptions', 'chapter_id'),
+    allIds<{ chapter_id: number | null }>(db, 'chapter_description_effective', 'chapter_id'),
     allIds<{ story_id: number | null; chapter_id: number | null }>(db, 'content_summaries', 'story_id, chapter_id'),
   ])
   // A curated wiki description counts as done — it is better than anything the

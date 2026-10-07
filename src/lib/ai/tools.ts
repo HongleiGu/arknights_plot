@@ -337,7 +337,7 @@ async function readEntity(supabase: Db, type: string, id: number): Promise<strin
       const { data: ch } = await supabase.from('chapters').select('level_code, level_name, story_id').eq('id', id).maybeSingle()
       if (!ch) return '未找到章节'
       // Curated wiki description (情报处理室) first, if present — a trustworthy digest.
-      const { data: desc } = await supabase.from('chapter_descriptions').select('body').eq('chapter_id', id).maybeSingle()
+      const { data: desc } = await supabase.from('chapter_description_effective').select('body').eq('chapter_id', id).maybeSingle()
       const { data: nodes } = await supabase.from('nodes')
         .select('speaker, content').eq('chapter_id', id).is('branch_id', null).order('seq').limit(200)
       const lines = (nodes ?? []).map(x => `${x.speaker ? x.speaker + '：' : ''}${x.content ?? ''}`.trim()).filter(Boolean)
@@ -353,7 +353,7 @@ async function readEntity(supabase: Db, type: string, id: number): Promise<strin
       // AI gap-fill summary (AP-23). Story overview: stories.description first,
       // else the AI story summary. Curated-first keeps it trustworthy + free.
       const chIds = (chs ?? []).map(c => c.id)
-      const { data: descs } = await supabase.from('chapter_descriptions')
+      const { data: descs } = await supabase.from('chapter_description_effective')
         .select('chapter_id, body').in('chapter_id', chIds.length ? chIds : [0])
       const chDesc = new Map((descs ?? []).map(d => [d.chapter_id, d.body as string]))
       const { data: sums } = await supabase.from('content_summaries')
@@ -659,7 +659,7 @@ export async function runTool(name: string, args: Record<string, unknown>): Prom
         const id = Number(args.id)
         // Curated first (chapter_descriptions / stories.description), AI gap-fill second.
         if (type === 'chapter') {
-          const { data: d } = await supabase.from('chapter_descriptions').select('body').eq('chapter_id', id).maybeSingle()
+          const { data: d } = await supabase.from('chapter_description_effective').select('body').eq('chapter_id', id).maybeSingle()
           if (d?.body) return { forModel: `简介（wiki）：${d.body}`, summary: `chapter/${id} 简介` }
           const { data: s } = await supabase.from('content_summaries').select('summary').eq('chapter_id', id).maybeSingle()
           return { forModel: s?.summary ?? '（尚未生成摘要）', summary: `chapter/${id} 摘要` }

@@ -86,7 +86,7 @@ export async function extractStoryRelations(storyId: number): Promise<{ ok: bool
   if (chars.length < 2) return { ok: false, error: '可识别角色不足（先 seed 实体，或该剧情角色太少）' }
 
   // Grounding: curated descriptions / summaries only (cheap, AP-23), capped.
-  const { data: descs } = await db.from('chapter_descriptions').select('chapter_id, body').in('chapter_id', chIds)
+  const { data: descs } = await db.from('chapter_description_effective').select('chapter_id, body').in('chapter_id', chIds)
   const { data: sums } = await db.from('content_summaries').select('story_id, chapter_id, summary')
     .or(`story_id.eq.${storyId},chapter_id.in.(${chIds.join(',')})`)
   const chDesc = new Map((descs ?? []).map(d => [d.chapter_id as number, d.body as string]))
