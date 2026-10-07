@@ -19,6 +19,7 @@ import json
 import time
 import logging
 import argparse
+from collections import Counter
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -247,6 +248,57 @@ def truncate_content_tables():
 
 # Cache (category, story_name) → stories.id during a run.
 _story_id_cache: dict[tuple[str, str], int] = {}
+
+
+def assign_mainline_order() -> None:
+    """
+    Put 主线 in reading order, derived from the game's own stage numbering.
+
+    `stories.seq` was never set, so the main story listed in row order — which
+    put 黑暗时代·上, the prologue, LAST, and 二次呼吸 (chapter 3) first.
+
+    The order is not hard-coded, for the same reason the timeline is scraped
+    rather than inferred: the game already numbers these. Every main-story
+    stage code carries its chapter — `3-1`, and from chapter 8 a letter-prefixed
+    form, `R8-1` / `M8-2` / `JT8-4`. Taking the most common number implied by a
+    story's own chapters gives 0..17 with no gaps and no story implying two,
+    measured over all 18.
+
+    `TR-n` (tutorial) and `EG-n` (事件) codes appear inside several stories and
+    imply no chapter; they are ignored rather than special-cased, because
+    "codes that carry no number" is the general case and listing them would
+    date.
+    """
+    rows = _execute(
+        supabase.table("stories").select("id, name").eq("category", "主线"),
+        "select 主线 stories").data or []
+    if not rows:
+        return
+
+    log.info(f"ordering {len(rows)} 主线 stories by stage number")
+    for s in rows:
+        chs = _execute(
+            supabase.table("chapters").select("level_code").eq("story_id", s["id"]),
+            f"level codes for {s['name']}").data or []
+        nums: Counter[int] = Counter()
+        for c in chs:
+            m = re.match(r"^[A-Za-z]*?(\d+)-", str(c.get("level_code") or ""))
+            if m:
+                nums[int(m.group(1))] += 1
+        if not nums:
+            log.warning(f"  {s['name']}: no stage code implies a chapter number "
+                        f"— left unordered")
+            continue
+        if len(nums) > 1:
+            # Not fatal: the modal number is still the right answer when a
+            # story carries a few stray event stages. Worth saying, though —
+            # a real split would mean two chapters share a story row.
+            log.warning(f"  {s['name']}: codes imply {dict(nums)}, "
+                        f"taking {nums.most_common(1)[0][0]}")
+        seq = nums.most_common(1)[0][0]
+        _execute(supabase.table("stories").update({"seq": seq}).eq("id", s["id"]),
+                 f"set seq for {s['name']}")
+        log.info(f"  {seq:>3}  {s['name']}")
 
 
 def get_or_create_story(category: str, name: str) -> int:
@@ -689,6 +741,8 @@ def main():
                 log.error(f"  rollback of chapter {chapter_id} also failed: {re_}")
             log.error(f"FAILED {rel}: {e} — rolled back, will retry on next run")
             failed.append(rel)
+
+    assign_mainline_order()
 
     if failed:
         log.warning(f"{len(failed)} stories failed and were rolled back:")
