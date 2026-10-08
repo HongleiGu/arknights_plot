@@ -44,18 +44,27 @@ CREATE POLICY "admin write manual descriptions" ON chapter_descriptions FOR ALL
 -- One row per chapter, by an EXPLICIT ranking of sources rather than recency.
 --
 --   1  manual              — written by hand, so it was written to win
---   2  情报处理室           — the official plot brief: what the game shows when
---                            it asks whether to skip the story
---   3  关卡描述             — the official TACTICAL briefing from the level page
+--   2  gamedata/storyInfo  — the game's OWN skip-confirmation brief, from
+--                            story_review_table.json + story/[uc]info/ in the
+--                            datamined game files. 2,008 sections, matching
+--                            1,971 of our 2,080 game chapters (95%) — and 100%
+--                            of 主线, which no wiki source covers at all.
+--   3  情报处理室           — the wiki's transcription of the same text. Checked
+--                            on 8 overlapping chapters: identical every time,
+--                            so this is a copy of #2 covering 973 chapters.
+--                            Kept below it because the game file is the source
+--                            and the transcription is the derivative.
+--   4  关卡描述             — the official TACTICAL briefing from the level page
 --                            ("已在战场上确认了敌方穿着迷彩的术师单位。请优先清除
 --                            此部分威胁较高的敌军。"). Real and official, but it
 --                            describes the fight, not the story, so it is a
---                            fallback for chapters that have no plot brief.
+--                            fallback for chapters with no plot brief at all.
 --
--- Ranking by `scraped_at DESC` would have been wrong the moment a second
--- scraped source existed: 关卡描述 is being imported now, so it is newer than
--- every 情报处理室 row, and recency would have silently promoted the tactical
--- text over the plot summary for all 973 chapters that have both.
+-- Ranking by `scraped_at DESC` would have been actively wrong the moment a
+-- second scraped source existed: 关卡描述 was imported after 情报处理室, so
+-- recency would have silently promoted tactical text over the plot summary on
+-- all 973 chapters that have both. A test inserting one row of each caught
+-- exactly that before any of it was loaded.
 CREATE OR REPLACE VIEW chapter_description_effective AS
 SELECT DISTINCT ON (chapter_id)
        id, chapter_id, source, body, scraped_at,
@@ -63,10 +72,11 @@ SELECT DISTINCT ON (chapter_id)
   FROM chapter_descriptions
  ORDER BY chapter_id,
           CASE source
-            WHEN 'manual'            THEN 1
-            WHEN 'prts.wiki/情报处理室' THEN 2
-            WHEN 'prts.wiki/关卡描述'   THEN 3
-            ELSE 4
+            WHEN 'manual'              THEN 1
+            WHEN 'gamedata/storyInfo'  THEN 2
+            WHEN 'prts.wiki/情报处理室'   THEN 3
+            WHEN 'prts.wiki/关卡描述'     THEN 4
+            ELSE 5
           END,
           scraped_at DESC;
 

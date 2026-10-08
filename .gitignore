@@ -59,3 +59,9 @@ next-env.d.ts
 # same posture as /data — regenerate with the website export + mineru_book.py)
 /大地巡旅
 大地巡旅*.pdf
+
+# Datamined game-data caches (Kengxxiao/ArknightsGameData). Text is
+# Hypergryph's; the scripts re-download it, so it is not committed.
+/data/story_review_table.json
+/data/story_briefs.json
+/data/level_descriptions.json
