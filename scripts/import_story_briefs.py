@@ -20,13 +20,21 @@ The index is the mapping, so none of it has to be guessed. Each section carries
 `storyInfo`, the path to its brief. Deriving the path from filenames instead
 was tried first and matched only 59% — nbt sections, `level_spst_08-*` for
 chapter 8's R8-/M8-/JT8- codes, and EG-/TR- stages all failed. Via the index it
-is 96% (1,986 of 2,080 game chapters): every one of 主线 (427), 干员密录 (384)
+is 96% (2,000 of 2,080 game chapters): every one of 主线 (427), 干员密录 (384)
 and 故事集 (132), and 1,045 of 1,046 支线.
 
-The remaining 94 are 集成战略 (35) / 四月辑录 (23) / 特殊 (17) / 生息演算 (16) and
-多索雷斯假日's DH-TR-1, whose sections are not in this table at all (their codes
-look like `RO1-END-1`, `RA-END-2`). They would need obt/roguelike and the
-activity tables, which is a separate job.
+LISTING BEATS INDEXING for the rest. The table indexes 2,008 of the 2,034 brief
+files that actually exist, and the 26 it omits include every roguelike ending and
+长夜临光's three hidden AVGs — chapters we have and could not otherwise describe.
+14 of those are claimed here (see UNINDEXED); the roguelike ones sit at
+LOWERCASED paths that guessing from story_table.json's `Obt/Roguelike/RO1/…`
+returns 404 for, so only an actual directory listing finds them.
+
+The remaining 80 have no brief shipped at all: 集成战略 24 (the per-theme framing
+and the ro3/ro4/ro5 endings), 四月辑录 23, 生息演算 16 (nothing under
+info/obt/ for RA), 特殊 14, and 3 支线 incl. 多索雷斯假日's DH-TR-1. Verified by
+listing story/[uc]info rather than inferred from a failed lookup — these have to
+be written by hand or left blank.
 
 RANKING
 -------
@@ -113,6 +121,56 @@ RESOLVED = {
     ("黑暗时代·上", "W2G"):          "info/obt/guide/beg/0_welcome_to_guide",
     ("黑暗时代·上", "G2H"):          "info/obt/guide/beg/2_guide_to_home",
 }
+
+# Briefs the game ships that `story_review_table` NEVER INDEXES — a different
+# problem from RESOLVED, where the index is present but ambiguous. Here there is
+# no index entry at all, so no key exists to look them up by.
+#
+# They were found by listing the directory instead of trusting the index:
+# story/[uc]info holds 2,034 brief files, the table accounts for 2,008, and the
+# other 26 include every roguelike ending and 长夜临光's three hidden AVGs — all
+# of them chapters we have. The roguelike ones are also at LOWERCASED paths
+# (info/obt/roguelike/ro1/…) where story_table.json spells the script
+# Obt/Roguelike/RO1/…, which is why guessing the path returned 404 and only an
+# actual listing found them.
+#
+# Matched by the same script comparison as RESOLVED, for the same reason: it
+# proves that level_rogue1_ending_1 is RO1-END-1 rather than assuming the
+# numbering lines up, and a wrong assumption there would put the wrong ending
+# summary on four chapters of every theme. Scores 51.8-94.4%, every runner-up
+# ≤13.6%.
+#
+# Two of the 26 are deliberately NOT here:
+#   - 11 act10d0/act11d0/act12d0 briefs whose scripts 404, so nothing can be
+#     compared and nothing claims them.
+#   - act17d1/level_act17d1_entry, which scored 57% on 四月辑录's RE-5 — but on
+#     4 of 7 lines, and the script's actual dialogue (可露希尔/杰西卡/雪雉 testing
+#     non-lethal equipment) appears NOWHERE in our database, so that activity
+#     simply is not imported and the hit was coincidence on short generic lines.
+#     The lesson is that a percentage over a 7-line chapter is not evidence; the
+#     accepted matches all rest on 20+ lines.
+UNINDEXED = {
+    ("长夜临光", "隐藏AVG1 逃离"):    "info/activities/act13side/level_act13side_hidden_st01",
+    ("长夜临光", "隐藏AVG2 选择"):    "info/activities/act13side/level_act13side_hidden_st02",
+    ("长夜临光", "隐藏AVG3 路漫漫"):  "info/activities/act13side/level_act13side_hidden_st03",
+    ("傀影与猩红孤钻", "舞会终场"):    "info/obt/roguelike/ro1/level_rogue1_ending_1",
+    ("傀影与猩红孤钻", "滑稽喜剧"):    "info/obt/roguelike/ro1/level_rogue1_ending_2",
+    ("傀影与猩红孤钻", "盛大揭幕"):    "info/obt/roguelike/ro1/level_rogue1_ending_3",
+    ("傀影与猩红孤钻", "沉默之章"):    "info/obt/roguelike/ro1/level_rogue1_ending_4",
+    ("水月与深蓝之树", "平凡即是喜乐"): "info/obt/roguelike/ro2/level_rogue2_ending_1",
+    ("水月与深蓝之树", "静谧时代"):    "info/obt/roguelike/ro2/level_rogue2_ending_2",
+    ("水月与深蓝之树", "息潮的代价"):  "info/obt/roguelike/ro2/level_rogue2_ending_3",
+    ("水月与深蓝之树", "如星空般深蓝"): "info/obt/roguelike/ro2/level_rogue2_ending_4",
+    ("沉沦者的黑流树海", "RO6-END-1"): "info/obt/roguelike/ro6/level_rogue6_ending_1",
+    ("沉沦者的黑流树海", "RO6-END-2"): "info/obt/roguelike/ro6/level_rogue6_ending_2",
+    ("沉沦者的黑流树海", "RO6-END-3"): "info/obt/roguelike/ro6/level_rogue6_ending_3",
+}
+
+# Both tables are hand-resolved overrides keyed the same way, so they are
+# consulted together; they are kept apart because the reasons differ and the
+# distinction is what tells a future reader whether to look in the index or on
+# disk when a new theme ships.
+OVERRIDES = {**RESOLVED, **UNINDEXED}
 
 DELAY = 0.15
 TIMEOUT = 45
@@ -215,9 +273,9 @@ def main() -> None:
         code = (c["level_code"] or "").strip()
         name = (c["level_name"] or "").strip()
         st = stage_of(c["file_path"])
-        if (sname, name) in RESOLVED:
+        if (sname, name) in OVERRIDES:
             used_resolved.add((sname, name))
-        info = (RESOLVED.get((sname, name))
+        info = (OVERRIDES.get((sname, name))
                 or by_code_tag.get((code, st))
                 or by_code_name.get((code, name))
                 or by_story_name.get((sname, name))
@@ -232,8 +290,9 @@ def main() -> None:
     # A RESOLVED entry matching no chapter is reported, not ignored — the same
     # posture as SECTION_TITLES in mineru_book.py. It means the story or level was
     # renamed, so the override is now silently doing nothing.
-    for key in sorted(set(RESOLVED) - used_resolved):
-        log.warning(f"stale RESOLVED entry (matches no chapter): {key}")
+    for key in sorted(set(OVERRIDES) - used_resolved):
+        which = "RESOLVED" if key in RESOLVED else "UNINDEXED"
+        log.warning(f"stale {which} entry (matches no chapter): {key}")
 
     cache: dict[str, str] = {}
     if CACHE.exists():
