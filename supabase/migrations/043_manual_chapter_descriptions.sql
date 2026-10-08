@@ -46,9 +46,9 @@ CREATE POLICY "admin write manual descriptions" ON chapter_descriptions FOR ALL
 --   1  manual              — written by hand, so it was written to win
 --   2  gamedata/storyInfo  — the game's OWN skip-confirmation brief, from
 --                            story_review_table.json + story/[uc]info/ in the
---                            datamined game files. 2,008 sections, matching
---                            1,971 of our 2,080 game chapters (95%) — and 100%
---                            of 主线, which no wiki source covers at all.
+--                            datamined game files. 2,009 sections, matching
+--                            1,986 of our 2,080 game chapters (96%) — including
+--                            ALL 427 of 主线, which no wiki source covers at all.
 --   3  情报处理室           — the wiki's transcription of the same text. Checked
 --                            on 8 overlapping chapters: identical every time,
 --                            so this is a copy of #2 covering 973 chapters.
