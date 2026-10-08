@@ -103,13 +103,31 @@ rate-limited model — this is the expensive ticket.
 
 ## AP-37 · Summaries backlog
 
-**Problem.** `content_summaries` has 14 rows. 1,686 chapters and 714 stories
-have none.
+**Problem.** `content_summaries` has 14 rows. **The chapter half is now
+essentially done by import rather than by model** — 2,002 of 2,080 game chapters
+carry an official plot description, so the chapter backlog fell from 1,686 to
+670, of which 526 are 漫画 (no panel text imported yet — AP-33) and 66 are
+大地巡旅 (excluded below). The real chapter remainder is **78**, and those have no
+official text in existence: the game ships no brief for the 集成战略 theme framing
+or ro3/ro4/ro5 endings (24), any of 生息演算 (16), the April Fools events (23), or
+特殊's EP09-EP12 / 危机合约 / 荷谟伊智境 (14). That is a content gap, confirmed by
+listing the shipped files — not something to re-investigate, and arguably not
+worth model calls either.
+
+**So the remaining work is story-level: 506 of 715** — 干员密录 432, 故事集 21,
+主线 18, 家具 10, and the rest in single digits.
 
 **Priority order** — 主线 (18 stories) → 支线 (53) → 故事集 (21). 干员密录 (432
 stories) is the long tail and may never be worth it. Chapters with a curated
-`chapter_descriptions` row already count as done (973 of them): the wiki text
-is better than the model's, so spending tokens there buys a worse result.
+`chapter_descriptions` row already count as done: official text beats the
+model's, so spending tokens there buys a worse result.
+
+**But `prts.wiki/关卡描述` does NOT count as done.** It is the tactical briefing
+from the level page (`提防敌军的迷彩部队`) — real, official, worth showing, and not a
+plot summary. `backlogIds()` originally treated any description row as done,
+which was correct while every row was a plot brief; after 1,463 tactical rows
+landed it marked 10 chapters complete that have no plot text at all. Fixed in
+`actions/summaries.ts`; keep the exclusion if a fifth source appears.
 
 **The book is excluded, deliberately.** A summary's value is compressing a
 narrative you might not have read. 大地巡旅 is reference prose, not narrative —
@@ -123,7 +141,7 @@ the right shape; add the category ordering.
 **Acceptance.** 主线 and 支线 fully summarised; the run survives being closed and
 reopened; no chapter with a curated description is re-summarised.
 
-**Depends on** nothing. **Cost** ~1,700 calls.
+**Depends on** nothing. **Cost** ~506 calls, down from ~1,700.
 
 ---
 

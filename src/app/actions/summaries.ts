@@ -156,13 +156,21 @@ async function backlogIds(db: Db) {
   const [chs, stories, descs, sums] = await Promise.all([
     allIds<{ id: number }>(db, 'chapters', 'id'),
     allIds<{ id: number; description: string | null }>(db, 'stories', 'id, description'),
-    allIds<{ chapter_id: number | null }>(db, 'chapter_description_effective', 'chapter_id'),
+    allIds<{ chapter_id: number | null; source: string }>(db, 'chapter_description_effective', 'chapter_id, source'),
     allIds<{ story_id: number | null; chapter_id: number | null }>(db, 'content_summaries', 'story_id, chapter_id'),
   ])
-  // A curated wiki description counts as done — it is better than anything the
-  // model would write, and re-summarising it would spend tokens to get worse.
+  // A curated description counts as done — it is better than anything the model
+  // would write, and re-summarising it would spend tokens to get worse. That is
+  // true of 情报处理室 and of the game's own skip brief, and NOT true of 关卡描述,
+  // which is the tactical briefing from the level page ("提防敌军的迷彩部队") and
+  // describes the fight rather than the story. It is real, official and worth
+  // showing on the chapter page, but a chapter whose only description is tactical
+  // has no plot summary and must stay in the backlog — otherwise importing 1,463
+  // of them silently marks chapters done and the gap never resurfaces, because
+  // nothing errors and the count only goes up.
   const chapterDone = new Set<number>([
-    ...descs.map(d => d.chapter_id).filter((v): v is number => v != null),
+    ...descs.filter(d => d.source !== 'prts.wiki/关卡描述')
+            .map(d => d.chapter_id).filter((v): v is number => v != null),
     ...sums.map(s => s.chapter_id).filter((v): v is number => v != null),
   ])
   const storyDone = new Set<number>([

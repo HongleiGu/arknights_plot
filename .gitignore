@@ -65,3 +65,7 @@ next-env.d.ts
 /data/story_review_table.json
 /data/story_briefs.json
 /data/level_descriptions.json
+
+# Python bytecode (scripts get imported by one-off checks)
+__pycache__/
+*.pyc

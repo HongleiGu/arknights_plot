@@ -164,8 +164,78 @@ The local inputs (the PDF, the MinerU export, `book_sections.json`, the crops) a
 **The text is known to contain errors** and says so: every story row carries an OCR provenance note and the reader shows a banner above the text. `check_book_ocr.py` produces the manual-fix list — see its docstring for why confidence and an external gazetteer both fail, and why the book's own table of contents works.
 The book is commercially published (ISBN 978-7-5514-4726-3). Importing makes it AI-searchable; it does **not** put it on a public page. That's a frontend decision and is deliberately unmade.
 3. `import_wiki_descriptions.py` — fills `chapter_descriptions` from `data/story_descriptions.json`
+3a. `scrape_level_descriptions.py` / `import_story_briefs.py` — **standalone** (not pipeline steps). See **Chapter descriptions** below.
 4. `scrape_story_pages.py` — for each story, fetches `prts.wiki/w/<story_name>` and extracts `name_en` (the `副标题` field), `description` (first `<div class="poem">` block), and the title image filename (`标题图文件名`). Downloads the title image into the matching `data/img/<grouping>/<story>.<ext>` and stamps `stories.name_en` + `stories.description`. Skips stories whose `description` is already set unless `--force`. Writes `data/story_pages.json` for debugging / cover handling.
 5. `upload_story_images.py` — uploads all `<story>.png` / `.jpg` / `_cover.png` / `_icon.png` files under `data/img/` to Storage (non-PNG converted to PNG via Pillow), stamps `stories.{icon,title,cover}_sha1`. When multiple files match the same `(kind, story)` pair, the most recently modified wins — so a fresh JPG from step 4 supersedes an older local PNG.
+
+## Chapter descriptions — four sources, one explicit ranking
+
+A chapter can carry several descriptions and `chapter_descriptions` has always
+allowed it, but every reader assumed one — `.maybeSingle()` in `lib/ai/tools.ts`
+and friends raises PGRST116 the moment a second row exists. So `043` added the
+view `chapter_description_effective`, which is what everything reads, and the
+precedence lives there instead of in seven `ORDER BY` clauses:
+
+| rank | source | what it is | rows |
+|---|---|---|---|
+| 1 | `manual` | written by hand in the admin editor | 0 |
+| 2 | `gamedata/storyInfo` | the game's OWN skip-confirmation brief | 2,000 |
+| 3 | `prts.wiki/情报处理室` | the wiki's transcription of #2 | 973 |
+| 4 | `prts.wiki/关卡描述` | the official **tactical** briefing | 1,463 |
+
+**Ranking by `scraped_at DESC` is actively wrong**, which is why the `CASE` is
+explicit. 关卡描述 was imported after 情报处理室, so recency silently promotes
+tactical text over the plot summary on every chapter that has both — 1,453 of
+them. A test that inserts one row per source with the dates **inverted** against
+the intended rank caught it before anything was loaded; dates that agree with the
+ranking would have passed either view. Keep that property if the ranking changes.
+
+**#3 is a transcription of #2, not an independent source.** Checked on 8
+overlapping chapters: byte-identical after whitespace normalisation. The game
+file is the original, so it outranks the copy, and the copy stays as a fallback.
+
+**#4 describes the fight, not the story** (`已在战场上确认了敌方穿着迷彩的术师单位`).
+It is real and official and worth showing, but it is not a summary — so the
+AP-37 backlog in `actions/summaries.ts` must **exclude** it when deciding what
+counts as already described. Any description row counting as "done" was correct
+while every row was a plot brief; after 1,463 tactical rows landed it marked 10
+chapters done that have no plot text at all, and nothing errors when it does.
+
+**The index is incomplete, and only a directory listing reveals it.**
+`story_review_table.json` is the mapping from our `(level_code, stage)` to a
+brief path, and it covers 2,008 of the 2,034 brief files the game actually ships.
+The 26 it omits include **every roguelike ending** and 长夜临光's three hidden
+AVGs. They also sit at **lowercased** paths — `info/obt/roguelike/ro1/…` where
+`story_table.json` spells the script `Obt/Roguelike/RO1/…` — so every guessed
+path 404s. Listing `story/[uc]info` via the git trees API costs 3 requests;
+`roguelike_topic_table.json` is 18MB and would still only cover 集成战略.
+
+**Fourteen chapters were resolved by comparing scripts, not names**
+(`RESOLVED` + `UNINDEXED` in `import_story_briefs.py`). 干员密录 sections are keyed
+by an operator CODE the data never writes in Chinese (`story_melan_1_1` vs
+`story_ifrit_1_1` for 小队长), and three are two halves of one record sharing one
+title — unsplittable by any name lookup. The test: fetch the candidate's
+`story/<storyTxt>.txt` and count how many of the chapter's `nodes.content` lines
+appear verbatim. **The separation is the evidence, not the score** — a correct
+match is 44-94% because the wiki renders narration differently, every wrong one
+is 0.0-1.8%, and the first pass's 80% absolute threshold rejected eleven of the
+fourteen correct matches. Conversely a 57% match on a **7-line** chapter was
+rejected: `act17d1`'s dialogue appears nowhere in our nodes, so that activity
+simply is not imported. Every accepted match rests on 20+ lines.
+
+Keyed by `(story name, level name)`, never chapter id — `parse_plots.py --force`
+re-inserts every scraped chapter and renumbers the ids. A stale entry is logged.
+
+**Measured coverage: 2,002 of 2,080 game chapters have a plot description** —
+all 427 of 主线 (which no wiki source covers at all), all 384 干员密录, all 132
+故事集, 1,045 of 1,046 支线. The 78 without are a **content gap, not a matching
+bug**, confirmed by listing: the game ships no brief for the 集成战略 theme framing
+or the ro3/ro4/ro5 endings (24), any of 生息演算 (16), the April Fools events (23),
+or 特殊's EP09-EP12 / 危机合约 / 荷谟伊智境 (14). Don't re-investigate these.
+
+**Provenance.** This text belongs to Hypergryph. Same posture as the 大地巡旅
+book: importing makes the archive searchable and records the source on every
+row, and does not republish it wholesale.
 
 Each step is idempotent. `--force` re-runs `parse_plots` from scratch and
 triggers the force-only steps (`scrape_plots`, `scrape_gadgets`,
