@@ -41,15 +41,34 @@ CREATE POLICY "admin write manual descriptions" ON chapter_descriptions FOR ALL
     AND EXISTS (SELECT 1 FROM users WHERE clerk_id = auth.uid()::text AND is_admin)
   );
 
--- One row per chapter: a hand-written description wins over a scraped one.
--- DISTINCT ON needs the ORDER BY to lead with the same expression, so the
--- precedence is the `source = 'manual' DESC` term — true sorts first.
+-- One row per chapter, by an EXPLICIT ranking of sources rather than recency.
+--
+--   1  manual              — written by hand, so it was written to win
+--   2  情报处理室           — the official plot brief: what the game shows when
+--                            it asks whether to skip the story
+--   3  关卡描述             — the official TACTICAL briefing from the level page
+--                            ("已在战场上确认了敌方穿着迷彩的术师单位。请优先清除
+--                            此部分威胁较高的敌军。"). Real and official, but it
+--                            describes the fight, not the story, so it is a
+--                            fallback for chapters that have no plot brief.
+--
+-- Ranking by `scraped_at DESC` would have been wrong the moment a second
+-- scraped source existed: 关卡描述 is being imported now, so it is newer than
+-- every 情报处理室 row, and recency would have silently promoted the tactical
+-- text over the plot summary for all 973 chapters that have both.
 CREATE OR REPLACE VIEW chapter_description_effective AS
 SELECT DISTINCT ON (chapter_id)
        id, chapter_id, source, body, scraped_at,
        (source = 'manual') AS is_manual
   FROM chapter_descriptions
- ORDER BY chapter_id, (source = 'manual') DESC, scraped_at DESC;
+ ORDER BY chapter_id,
+          CASE source
+            WHEN 'manual'            THEN 1
+            WHEN 'prts.wiki/情报处理室' THEN 2
+            WHEN 'prts.wiki/关卡描述'   THEN 3
+            ELSE 4
+          END,
+          scraped_at DESC;
 
 -- A view runs with the privileges of its owner unless told otherwise, which
 -- would bypass RLS on the table beneath it. `security_invoker` makes it obey
