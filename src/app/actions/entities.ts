@@ -287,6 +287,16 @@ export interface MergeCandidate {
   dropLines: number
   /** Why these two look like one character. */
   basis: string
+  /**
+   * Which of the two things this is, and therefore which action is right.
+   *
+   * 'alt'      an 异格 — it has its OWN official 人员档案 and 客观履历, emphasising
+   *            different aspects of the same person. Linking as 同一人 keeps both
+   *            records; merging would discard one. Recommended: link.
+   * 'nickname' a name that only ever appeared in dialogue, with no official
+   *            record of its own. One character, two rows. Recommended: merge.
+   */
+  kind: 'alt' | 'nickname'
 }
 
 /**
@@ -309,15 +319,23 @@ export async function findMergeCandidates(): Promise<
   if (bad) return { error: bad }
   const db = await createClient()
 
-  const rows: { id: number; name: string; summary: string | null; mention_count: number }[] = []
+  const rows: {
+    id: number; name: string; summary: string | null
+    mention_count: number; raw: Record<string, unknown> | null
+  }[] = []
   for (let from = 0; ; from += 1000) {
     const { data } = await db.from('entities')
-      .select('id, name, summary, mention_count')
+      .select('id, name, summary, mention_count, raw')
       .eq('type', 'character').range(from, from + 999)
     const got = (data ?? []) as typeof rows
     rows.push(...got)
     if (got.length < 1000) break
   }
+  // The documentary discriminator for alt-form vs nickname: does the game keep a
+  // separate record for this name? Measured: all 17 alt forms have one, and
+  // every nickname candidate has none.
+  const hasRecord = (r: typeof rows[number]) =>
+    (r.raw ?? {})['source'] === 'personnel_file/客观履历'
 
   // Only pairs where the longer name's own official 客观履历 OPENS BY NAMING the
   // shorter one. Containment alone is useless here: it yields 4,810 pairs, led
@@ -351,14 +369,94 @@ export async function findMergeCandidates(): Promise<
   }
 
   const out: MergeCandidate[] = [...best.values()].map(({ short, long }) => ({
-    // The base form is kept: it is the name the rest of the canon uses, and it
-    // carries the dialogue history (the alternate form usually has none).
+    // The base form is the one to keep or link to: it is the name the rest of
+    // the canon uses, and it carries the dialogue history (an alt form has none).
     keepId: short.id, keepName: short.name, keepLines: short.mention_count,
     dropId: long.id, dropName: long.name, dropLines: long.mention_count,
-    basis: `「${long.name}」的官方客观履历开头即称其为「${short.name}」`,
+    basis: `「${long.name}」的官方客观履历开头即称其为「${short.name}」`
+      + (hasRecord(long) ? '；它有自己的人员档案，所以是异格而不是昵称' : ''),
+    kind: hasRecord(long) ? 'alt' : 'nickname',
   }))
+
+  // Nicknames: a name that only appeared in dialogue, abbreviating one that has
+  // an official record. PREFIX containment, not containment — that is what
+  // running it taught: of 6 containment pairs, 4 were suffix coincidences
+  // (安娜 from 薇薇安娜, 瑟琳 from 凯瑟琳, 威尔 from 诺威尔, 法琳 from 华法琳), and a
+  // Chinese transliteration's ending carries no relationship at all. An
+  // abbreviation keeps the start: 幽灵 of 幽灵鲨, 薇薇安 of 薇薇安娜.
+  for (const short of rows) {
+    if (hasRecord(short) || short.name.length < 2) continue
+    for (const long of rows) {
+      if (long.id === short.id || !hasRecord(long)) continue
+      if (!long.name.startsWith(short.name)) continue
+      if (short.mention_count > long.mention_count * 0.5) continue
+      out.push({
+        keepId: long.id, keepName: long.name, keepLines: long.mention_count,
+        dropId: short.id, dropName: short.name, dropLines: short.mention_count,
+        basis: `「${short.name}」是「${long.name}」的前缀、台词少得多、且没有自己的人员档案`,
+        kind: 'nickname',
+      })
+    }
+  }
+
   out.sort((a, b) => b.keepLines - a.keepLines)
   return { candidates: out }
+}
+
+/**
+ * Link two rows as the same person WITHOUT destroying either (044).
+ *
+ * This is the right action for an 异格: 荒芜拉普兰德 and 拉普兰德 are one person, but
+ * each has its own official 客观履历 emphasising different things, and a merge
+ * would throw one away. `同一人` is a relation kind precisely so that identity
+ * can be asserted without collapsing the records.
+ *
+ * Cited, not merely asserted: the evidence is the alt form's own 客观履历, whose
+ * `text_chunks` row is already recorded in `raw.refs` — `@text/<id>`, which
+ * `044`'s grounding CHECK accepts as precise. Note that `@entity/<id>` would
+ * NOT pass that check, which is why the text chunk is used. Falls back to
+ * `source = 'manual'` only when there is no such citation to give.
+ */
+export async function linkSameCharacter(
+  aId: number, bId: number,
+): Promise<{ ok: true; cited: string | null } | { error: string }> {
+  const bad = await guard()
+  if (bad) return { error: bad }
+  if (aId === bId) return { error: '不能与自身建立关系' }
+  const db = await createClient()
+
+  const { data: pair } = await db.from('entities')
+    .select('id, type, name, identity, review, raw').in('id', [aId, bId])
+  const a = (pair ?? []).find(e => e.id === aId)
+  const b = (pair ?? []).find(e => e.id === bId)
+  if (!a || !b) return { error: '找不到其中一个实体' }
+  for (const e of [a, b]) {
+    if (e.identity === 'device' || e.review === 'suspicious') {
+      return { error: `「${e.name}」还没判定（${e.identity}/${e.review}），请先判定` }
+    }
+  }
+
+  // 同一人 is symmetric, so it is stored once with from < to — the canonical
+  // ordering that makes UNIQUE(from,to,kind) mean anything.
+  const [from, to] = aId < bId ? [aId, bId] : [bId, aId]
+
+  const refOf = (e: typeof a) =>
+    (((e.raw ?? {}) as { refs?: unknown }).refs as string[] | undefined)
+      ?.find(r => r.startsWith('@text/')) ?? null
+  const cited = refOf(b) ?? refOf(a)
+
+  const { error } = await db.from('entity_relations').upsert({
+    from_entity_id: from, to_entity_id: to, kind: '同一人',
+    note: `${a.name} 与 ${b.name} 是同一人（异格/别名），各自保留官方档案`,
+    source: cited ? 'scraped' : 'manual',
+    source_refs: cited ? [cited] : [],
+  }, { onConflict: 'from_entity_id,to_entity_id,kind' })
+  if (error) return { error: error.message }
+
+  revalidatePath('/admin/entities')
+  revalidatePath(`/world/${aId}`)
+  revalidatePath(`/world/${bId}`)
+  return { ok: true, cited }
 }
 
 export interface MergeReport {

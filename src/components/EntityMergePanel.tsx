@@ -15,7 +15,9 @@
 
 import { useState, useTransition } from 'react'
 import Link from 'next/link'
-import { findMergeCandidates, mergeEntities, type MergeCandidate } from '@/app/actions/entities'
+import {
+  findMergeCandidates, mergeEntities, linkSameCharacter, type MergeCandidate,
+} from '@/app/actions/entities'
 
 export default function EntityMergePanel() {
   const [cands, setCands] = useState<MergeCandidate[] | null>(null)
@@ -54,6 +56,30 @@ export default function EntityMergePanel() {
     setDone(d => ({ ...d, [`${c.keepId}-${c.dropId}`]: describe(r) }))
   })
 
+  const confirmMerge = (c: MergeCandidate) => {
+    const extra = c.kind === 'alt'
+      ? `\n\n注意：「${c.dropName}」有自己的官方客观履历，合并会丢掉那一份。`
+        + `\n一般应该用「标记同一人」。`
+      : ''
+    if (confirm(
+      `把「${c.dropName}」合并进「${c.keepName}」？\n\n`
+      + `关系、评论锚点、板块节点都会改指向「${c.keepName}」，`
+      + `「${c.dropName}」会成为它的别名，然后该行被删除。不可撤销。${extra}`,
+    )) merge(c)
+  }
+
+  const link = (c: MergeCandidate) => start(async () => {
+    setErr(null)
+    const r = await linkSameCharacter(c.keepId, c.dropId)
+    setDone(d => ({
+      ...d,
+      [`${c.keepId}-${c.dropId}`]: 'error' in r
+        ? `失败：${r.error}`
+        : `已标记同一人（两份档案都保留）`
+          + (r.cited ? ` · 引用 ${r.cited}` : ' · 无引用，记为 manual'),
+    }))
+  })
+
   return (
     <section className="border border-ark-border p-4 mb-8">
       <div className="flex items-baseline gap-3">
@@ -79,12 +105,24 @@ export default function EntityMergePanel() {
         把那些做成一键不可撤销的合并是危险的，所以不列出。
       </p>
       <p className="mt-2 text-[11px] text-ark-muted leading-relaxed font-sans">
-        <b className="text-ark-text">合并不一定是对的做法。</b>
-        干员异格形态各有自己的官方客观履历，合并会丢掉其中一份；而
-        <code className="text-ark-text">同一人</code> 本身就是一种关系类型，
-        连起来既保留两份档案，又答得出「这是谁」。合并留给真正的重复——
-        同一个角色变成了两行。
+        <b className="text-ark-text">两种情况，两种做法，判据是文档而不是感觉：
+        这一行有没有自己的官方人员档案。</b>
       </p>
+      <ul className="mt-2 pl-4 text-[11px] text-ark-muted leading-relaxed font-sans space-y-1">
+        <li>
+          <b className="text-ark-text">异格</b>（有自己的档案）——同一个人，但各有一份
+          官方客观履历，侧重的性格面不同。推荐<b className="text-ark-text">标记同一人</b>：
+          两份档案都留着，又答得出「这是谁」。合并会丢掉其中一份。实测 17 个候选，
+          17 个都有自己的档案。
+        </li>
+        <li>
+          <b className="text-ark-text">昵称／简称</b>（没有档案）——只在台词里出现过的叫法，
+          一个角色变成了两行。推荐<b className="text-ark-text">合并</b>。
+          判据是<b className="text-ark-text">前缀</b>而不是包含：6 个包含关系里有 4 个
+          只是音译的尾字巧合（安娜←薇薇安娜、瑟琳←凯瑟琳、威尔←诺威尔、法琳←华法琳），
+          而简称保留开头（幽灵←幽灵鲨、薇薇安←薇薇安娜）。
+        </li>
+      </ul>
 
       {/* For a pair the admin spots that no rule proposes. Ids rather than
           names, because a name is not unique across types and a typo here
@@ -125,39 +163,74 @@ export default function EntityMergePanel() {
         <ul className="mt-4 space-y-2">
           {cands.map(c => {
             const key = `${c.keepId}-${c.dropId}`
-            const strong = c.basis.includes('客观履历')
+            const isAlt = c.kind === 'alt'
             return (
               <li key={key}
-                  className={`border p-2 ${strong ? 'border-ark-accent/40' : 'border-ark-border'}`}>
+                  className={`border p-2 ${isAlt ? 'border-ark-accent/40' : 'border-ark-success/40'}`}>
                 <div className="flex items-baseline gap-2 flex-wrap text-[12px]">
+                  <span className={`text-[9px] uppercase tracking-widest px-1
+                    ${isAlt ? 'text-ark-accent' : 'text-ark-success'}`}>
+                    {isAlt ? '异格' : '昵称'}
+                  </span>
                   <Link href={`/world/${c.dropId}`} className="text-ark-text hover:text-ark-accent">
                     {c.dropName}
                   </Link>
                   <span className="text-[10px] text-ark-muted">{c.dropLines} 行</span>
-                  <span className="text-ark-muted">→</span>
+                  <span className="text-ark-muted">{isAlt ? '↔' : '→'}</span>
                   <Link href={`/world/${c.keepId}`} className="text-ark-text hover:text-ark-accent">
                     {c.keepName}
                   </Link>
                   <span className="text-[10px] text-ark-muted">{c.keepLines} 行</span>
                   {!done[key] && (
-                    <button
-                      onClick={() => {
-                        if (confirm(
-                          `把「${c.dropName}」合并进「${c.keepName}」？\n\n`
-                          + `关系、评论锚点、板块节点都会改指向「${c.keepName}」，`
-                          + `「${c.dropName}」会成为它的别名，然后该行被删除。不可撤销。`,
-                        )) merge(c)
-                      }}
-                      disabled={pending}
-                      className="ml-auto text-[10px] uppercase tracking-widest px-2 py-0.5
-                                 border border-ark-border text-ark-muted
-                                 hover:border-ark-danger hover:text-ark-danger disabled:opacity-50"
-                    >
-                      合并
-                    </button>
+                    <span className="ml-auto flex gap-2">
+                      {/* The recommended action is listed first; the other stays
+                          available, because the rule is evidence and not a
+                          verdict. */}
+                      {isAlt ? (
+                        <>
+                          <button
+                            onClick={() => link(c)} disabled={pending}
+                            className="text-[10px] uppercase tracking-widest px-2 py-0.5
+                                       border border-ark-accent-dim text-ark-accent
+                                       hover:bg-ark-accent/10 disabled:opacity-50"
+                          >
+                            标记同一人
+                          </button>
+                          <button
+                            onClick={() => confirmMerge(c)} disabled={pending}
+                            className="text-[10px] uppercase tracking-widest px-2 py-0.5
+                                       border border-ark-border text-ark-muted
+                                       hover:border-ark-danger hover:text-ark-danger
+                                       disabled:opacity-50"
+                          >
+                            仍要合并
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => confirmMerge(c)} disabled={pending}
+                            className="text-[10px] uppercase tracking-widest px-2 py-0.5
+                                       border border-ark-success/50 text-ark-success
+                                       hover:bg-ark-success/10 disabled:opacity-50"
+                          >
+                            合并
+                          </button>
+                          <button
+                            onClick={() => link(c)} disabled={pending}
+                            className="text-[10px] uppercase tracking-widest px-2 py-0.5
+                                       border border-ark-border text-ark-muted
+                                       hover:border-ark-accent-dim hover:text-ark-accent
+                                       disabled:opacity-50"
+                          >
+                            只标记同一人
+                          </button>
+                        </>
+                      )}
+                    </span>
                   )}
                 </div>
-                <p className={`mt-1 text-[10px] ${strong ? 'text-ark-accent' : 'text-ark-muted'}`}>
+                <p className={`mt-1 text-[10px] ${isAlt ? 'text-ark-accent' : 'text-ark-muted'}`}>
                   {'//'} {c.basis}
                 </p>
                 {done[key] && (
