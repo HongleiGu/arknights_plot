@@ -444,6 +444,81 @@ from a name suffix would be a guess dressed as data. 24 operators in
 `operator_profiles.json` have no `stories` row and so no entity here; they are
 `卫戍协议` / `集成战略` variant entries, reported by the script rather than dropped.
 
+**The graph schema is frozen by `044`** — structure final, vocabulary still data.
+That split is the point: `026` left `type` and `kind` as free text because "a new
+entity class is data, not a migration", which was right about extensibility and
+cost us drift nothing could catch. `026` documented
+`character|location|faction|concept|artefact`; AP-35's seeders wrote
+`place|organisation|nation|race|event`, so two types were renamed by accident and
+`artefact` never existed. And 11 extracted relations produced **six** kinds, two
+of which (敌对 / 对立) are the same relation. Nothing in code enumerated either
+vocabulary, so nothing could object.
+
+`entity_types` and `relation_kinds` are lookup tables with FKs from
+`entities.type` / `entity_relations.kind`: an unknown value now fails at write
+time, and a legitimate new one is an `INSERT`, never a migration. A `CHECK` would
+have forced a migration per value; free text forced nothing.
+
+`relation_kinds` carries **`symmetric`**, so 盟友 is stored once with
+`from_entity_id < to_entity_id` — the canonical ordering is what makes
+`UNIQUE(from,to,kind)` mean anything, and `relations.ts` previously did this from
+a hardcoded JS `Set` covering only the kinds its own prompt suggested, which is
+how 对立 and 联络 slipped through. It also carries `from_role`/`to_role`, without
+which 师徒 is ambiguous and half the rows end up backwards. `category` splits
+`derived` (a join over `raw.profile`, no model) from `narrative` (extracted, cited).
+
+**Grounding is enforced in the database, not in the prompt.** AP-36 says the
+check must be structural; `044` makes it one. `graph_refs_well_formed()` fixes
+the token shape and `graph_refs_precise()` requires at least one
+`@node`/`@chapter`/`@text` — `@story/<id>` alone resolves while making "does the
+cited text support this claim" unanswerable, which is exactly what all 11 legacy
+rows did, so `044` deletes them rather than relaxing the rule for them. Only
+`source = 'manual'` is exempt, because a person may assert from their own reading.
+
+**Identity is a property of the name in a scope, not of the name.** Measured over
+all 715 stories with `scope_speakers()`: 6,889 distinct speakers, **5,633 in
+exactly one story**, and 148 non-operator speakers in five or more. Those 148 are
+three different things:
+- **named** — 塔露拉 (17 stories, 1,605 lines), 魏彦吾, 特蕾西娅: real people with
+  no playable 干员 record. Global identity, correctly merged. "Not an operator"
+  does not mean "not a character".
+- **scoped** — 医疗干员 (**44 stories**), 罗德岛干员 (28), 维多利亚士兵 (11): a real
+  being with no name given. One vertex for 医疗干员 is a composite of 44 people,
+  so any edge on it is wrong — a correctness bug, not untidiness.
+- **device** — 众人 (a chorus), 广播, 门外的声音, 父亲 (a different man each time):
+  not entities at all.
+
+So `entities.identity` is `unverified | named | scoped | device` and defaults to
+**`unverified`**, not `named`: 6,889 rows arrived from a speaker column and
+nothing has vouched for them. Each seeder sets what it knows; a classifier
+demotes the rest and sets `review = 'suspicious'` for a human pass. A trigger
+refuses to attach an edge to a `device` or `suspicious` endpoint — the model may
+write edges, but not onto a vertex that is a composite or not a person, and the
+database refuses rather than the prompt asking nicely.
+
+**`？？？` needs no handling and should keep none.** `seed_entities.py` and
+`scope_speakers()` both exclude `^[？?]+$`. A masked speaker is an unresolved
+slot; resolving it asserts a reveal the game is deliberately withholding.
+
+**`UNIQUE (type, name)` is deliberately unchanged.** Scoping identity properly
+means `UNIQUE (type, name, scope_story_id)`, and a nullable column in a unique key
+needs `NULLS NOT DISTINCT` or a `COALESCE` index — either of which stops
+PostgREST's `on_conflict=type,name` working and breaks all three seeders. A
+composite row is flagged and resolved by hand instead. That is the cost, and it
+is why `nation` stays separate from `place` (19 nations against 4 cities, and the
+出身地 join resolves to nations specifically).
+
+**An alias that is a claim is an edge, not a string.** `aliases[]` carries no
+provenance, so "模糊的声音 is 凯尔希" there would be an uncited assertion about a
+reveal. `同一人` is a relation kind, so that belongs in `entity_relations` with
+citations; `aliases[]` keeps only officially-stated alternates (安洁莉娜's
+本名安心院安洁莉娜, straight out of her 客观履历). Same for 涤火杰西卡 / 杰西卡.
+
+Watch for this when prompting the extractor: **11 speaker strings are also world
+entity names** — 萨卡兹, 菲林, 黎博利, 卡特斯, 萨科塔, 天灾信使… A line spoken by
+"萨卡兹" means *some* Sakaz, not the race. Different `type` keeps them as separate
+rows, but a model given an unqualified roster will conflate them.
+
 **Enemies + items — global catalogs** (`037`): `enemies` and `items` are the
 first per-shape tables that do **not** FK to `stories`. Everything else
 (gadgets/events/text_clusters/furniture) hangs off a story because it belongs

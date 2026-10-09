@@ -92,8 +92,28 @@ edges follow by join rather than by extraction. See the AP-36 note.
 
 ## AP-36 · Relation extraction, citations enforced
 
-**Problem.** `entity_relations` has 11 rows. This is the table GraphRAG
-traverses, so AP-38 is empty until it is populated.
+**Problem.** `entity_relations` had 11 rows and `044` deletes them: they cited
+only `@story/58`, which resolves while making "does the cited text support this"
+unanswerable, and they used six kinds two of which (敌对 / 对立) are the same
+relation. This is the table GraphRAG traverses, so AP-38 is empty until it is
+populated.
+
+**The schema is frozen (`044`, 2026-10-09)** — vocabulary in `entity_types` /
+`relation_kinds` with FKs, `symmetric` + `from_role` declared per kind, grounding
+enforced by CHECK rather than by prompt, and a trigger refusing edges onto an
+unreviewed vertex. CLAUDE.md has the reasoning. Three code changes follow before
+any batch pass runs:
+1. `relations.ts` must offer the model the **closed** kind list and drop
+   unknowns, instead of nine suggestions ending in 等.
+2. It must cite `@node`/`@chapter`, not `@story/<id>` — the DB now refuses the
+   latter alone.
+3. `confidence` is hardcoded `0.6` on every row; a constant masquerading as
+   information should be the model's number or NULL.
+
+**And identity must be classified first.** 5,633 of 6,889 speakers appear in one
+story, and 医疗干员 is one vertex for 44 different people. A classifier sets
+`entities.identity` and flags the vague ones `review = 'suspicious'`; the trigger
+then keeps the extraction pass off them until they are cleared by hand.
 
 **The hard constraint.** The model knows Arknights from pretraining and will
 assert `凯尔希 —盟友→ 阿米娅` without reading a line. CLAUDE.md's rule for this
