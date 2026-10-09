@@ -366,6 +366,39 @@ speaks — `python scripts/seed_entities.py` derives characters from distinct
 `narrator`/`？？？`). Later phases enrich (aliases/name_en/summary) and extract
 relations with citations. Public read, admin/service-role write.
 
+**Character summaries are scraped, not generated** —
+`python scripts/seed_entity_profiles.py`. Every operator's 人员档案 carries a
+chunk titled **客观履历**, an official third-person career summary of 90-140
+characters, and all 432 operators with a `personnel_file` cluster have one. So
+"summarise the characters" was never thousands of LLM calls; it is a join.
+`summary_status = 'scraped'`, because it is transcribed rather than written.
+
+It reads `text_chunks`, not `data/operator_profiles.json`, for two reasons: the
+database is the authority, and only the DB copy can carry a **citation** —
+`raw.refs` holds `@text/<chunk_id>`, a ref type `lib/references.ts` already
+resolves. Measured: 432 summaries, 864 citations, 0 unresolvable.
+
+It also creates the 99 operator entities `seed_entities.py` never saw, because
+those operators never speak a line in imported plot. The two scripts are
+deliberately **disjoint in which columns they write** — `seed_entities.py` owns
+`mention_count`/`aliases`/`name_en` and omits `summary`; this one is the mirror.
+Overlap would mean each run silently undoes the other, and the check for it is
+that 阿米娅 still reports `mention_count = 6803` after a profile seed.
+
+`基础档案` is a 【label】value block, so 出身地 / 种族 / 战斗经验 / 身高 /
+矿石病感染情况 parse into `raw.profile` with no heuristics: **32 distinct
+出身地 and 45 distinct 种族 across 424 operators**. That is a free slice of AP-36
+waiting to be taken — once AP-35 creates `nation` and `race` entities, those two
+fields are grounded character→nation and character→race edges needing no
+extraction at all, on a ticket costed at thousands of calls.
+
+Alternate operator forms get their own row: 涤火杰西卡 and 杰西卡 are separate
+records with separate 档案 and separate 客观履历. CLAUDE.md already lists `同一人`
+as a relation kind, so an edge is the right home for that — deriving the pairing
+from a name suffix would be a guess dressed as data. 24 operators in
+`operator_profiles.json` have no `stories` row and so no entity here; they are
+`卫戍协议` / `集成战略` variant entries, reported by the script rather than dropped.
+
 **Enemies + items — global catalogs** (`037`): `enemies` and `items` are the
 first per-shape tables that do **not** FK to `stories`. Everything else
 (gadgets/events/text_clusters/furniture) hangs off a story because it belongs

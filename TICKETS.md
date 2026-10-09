@@ -8,7 +8,7 @@ Measured state at the time of writing (2026-09-28):
 
 | | |
 |---|---|
-| `entities` | 6,885 — **all `character`**, 0 with a summary |
+| `entities` | 6,984 — **all `character`**; 432 now carry a scraped summary (2026-10-09) |
 | `entity_relations` | **11** |
 | `content_summaries` | **14** (13 chapter, 1 story) of ~2,400 possible targets |
 | `chapter_descriptions` (curated, count as done) | 973 |
@@ -50,6 +50,19 @@ adds a second grounded source for events.
 - Populate `entities.summary` from the section's opening prose, with
   `summary_status = 'scraped'` (not `ai_draft`) — it is transcribed, not written.
 - Keep `source_url` / a citation on every row.
+
+**The character half is already done** (2026-10-09, no model calls):
+`seed_entity_profiles.py` gave all 432 operators the official 客观履历 from their
+人员档案 as `summary`, with `@text/<id>` citations, and created the 99 operator
+entities `seed_entities.py` had missed because those operators never speak. So
+AP-35 is now only about the **non-character** types, which is what it was always
+really about.
+
+**And it got cheaper.** That script parsed `基础档案` into `entities.raw.profile`,
+which holds **32 distinct 出身地 and 45 distinct 种族 across 424 operators** — so
+the moment this ticket creates `nation` and `race` entities, those are the
+grounded names to create them from, and the character→nation / character→race
+edges follow by join rather than by extraction. See the AP-36 note.
 
 **Not in scope.** Inventing entities the book does not name; relations (AP-36).
 
@@ -96,8 +109,19 @@ invented citation looks exactly like a real one.
 - A hand-checked sample of ≥30 edges supports its citation.
 - The pass is resumable: killing it mid-run loses no completed work.
 
+**A slice of this needs no model at all.** `entities.raw.profile` already holds
+every operator's 出身地 and 种族, parsed from the game's own 基础档案 — 424
+operators, 32 nations, 45 races. Once AP-35 creates those entities, that is
+~850 edges with a `@text/<id>` citation each, by join. Do it **first**: it costs
+nothing, and it gives the extraction pass a populated graph to be measured
+against instead of an empty one.
+
+What genuinely needs a model is the relations no field states — who allies with,
+opposes, commands or betrays whom — and those are the ones where the
+citation check above is load-bearing.
+
 **Depends on** AP-35. **Blocks** AP-38. **Cost** thousands of calls on a free,
-rate-limited model — this is the expensive ticket.
+rate-limited model for the narrative edges; zero for the 出身地/种族 slice.
 
 ---
 
