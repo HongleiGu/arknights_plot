@@ -18,10 +18,20 @@
 --     are the same relation. At 11 rows that is untidy; at several thousand,
 --     "who opposes X" has to know every synonym a model ever reached for.
 --
--- Two lookup tables fix both without giving up extensibility: a FOREIGN KEY
--- makes an unknown value fail loudly at write time, and adding a legitimate new
--- value is one INSERT. A CHECK constraint would have forced a migration per
--- value; free text forced nothing at all.
+-- The two are NOT treated the same, because they are not the same problem:
+--
+--   * `entities.type` is CLOSED by an FK to `entity_types`. "Is this a nation or
+--     a place" has a discrete answer, so an unknown value is a mistake and
+--     should fail at write time. Adding a legitimate type is one INSERT.
+--   * `entity_relations.kind` stays FREE TEXT with no FK. Relations are more
+--     complex than discrete words, and forcing 凯尔希↔特蕾西娅 into 盟友 discards
+--     the thing worth keeping. The meaning lives in `note` + `source_refs`,
+--     which is more precise than any label, so the label is free. An
+--     unrecognised kind becomes a review item rather than a write failure.
+--
+-- A CHECK constraint would have forced a migration per value; free text alone
+-- forced nothing at all. A lookup table with an FK is the middle, and an
+-- advisory lookup table without one is the middle for the free side.
 -- ============================================================
 
 -- ---------- the vertex vocabulary -------------------------------------------
@@ -61,7 +71,12 @@ CREATE TABLE IF NOT EXISTS relation_kinds (
   -- once each way, and both rows look valid. `relations.ts` already does this
   -- via a hardcoded JS Set that covers only the kinds its prompt suggested, so
   -- 对立 and 联络 fell through it. Declaring it here keeps one answer.
-  symmetric BOOLEAN NOT NULL DEFAULT FALSE,
+  --
+  -- NOT named `symmetric`: that is a RESERVED word in Postgres (it belongs to
+  -- `BETWEEN SYMMETRIC`), so the column would need quoting at every single
+  -- reference and the first one to forget is a syntax error. Renaming is the
+  -- cheaper fix than remembering.
+  is_symmetric BOOLEAN NOT NULL DEFAULT FALSE,
   -- 'derived'   computed from a structured field; no model, no judgement
   -- 'narrative' asserted about the story; needs citations and review
   category  TEXT NOT NULL CHECK (category IN ('derived', 'narrative')),
@@ -90,7 +105,7 @@ CREATE TABLE IF NOT EXISTS relation_kinds (
 -- treated as directed and the row is flagged `review = 'suspicious'`** — which
 -- is the same manual-review queue the vague speakers go into, rather than a
 -- second mechanism. New kinds are expected; they just get looked at once.
-INSERT INTO relation_kinds (key, label, symmetric, category, from_role, to_role) VALUES
+INSERT INTO relation_kinds (key, label, is_symmetric, category, from_role, to_role) VALUES
   -- derived: a join over entities.raw.profile, citable to the 基础档案 chunk
   ('出身',   '出身',   FALSE, 'derived',   '人物', '国家/地点'),
   ('种族',   '种族',   FALSE, 'derived',   '人物', '种族'),

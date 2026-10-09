@@ -98,17 +98,24 @@ unanswerable, and they used six kinds two of which (敌对 / 对立) are the sam
 relation. This is the table GraphRAG traverses, so AP-38 is empty until it is
 populated.
 
-**The schema is frozen (`044`, 2026-10-09)** — vocabulary in `entity_types` /
-`relation_kinds` with FKs, `symmetric` + `from_role` declared per kind, grounding
-enforced by CHECK rather than by prompt, and a trigger refusing edges onto an
-unreviewed vertex. CLAUDE.md has the reasoning. Three code changes follow before
-any batch pass runs:
-1. `relations.ts` must offer the model the **closed** kind list and drop
-   unknowns, instead of nine suggestions ending in 等.
+**The schema is frozen (`044`, 2026-10-09).** `entities.type` is closed by an FK
+to `entity_types`; **`kind` stays free text**, because relations are more complex
+than discrete words. `relation_kinds` is an advisory registry supplying
+`is_symmetric` and `from_role`, an unlisted kind is flagged
+`review = 'suspicious'` rather than rejected, `note` is required by CHECK for
+anything not `source='derived'`, grounding is enforced by CHECK rather than by
+prompt, and a trigger refuses edges onto an unreviewed vertex. CLAUDE.md has the
+reasoning. Three code changes follow before any batch pass runs:
+1. `relations.ts` must read symmetry from `relation_kinds` instead of its
+   hardcoded JS `Set`, and flag an unlisted kind for review.
 2. It must cite `@node`/`@chapter`, not `@story/<id>` — the DB now refuses the
-   latter alone.
+   latter alone — and must write a `note`, which the DB also now requires.
 3. `confidence` is hardcoded `0.6` on every row; a constant masquerading as
    information should be the model's number or NULL.
+
+**The review UI exists**: `/admin/entities` (actions in `app/actions/entities.ts`,
+constants in `lib/graph.ts`). Global rather than per-story, because the judgement
+is about the entity — 医疗干员 is in 44 stories — with the evidence brought to it.
 
 **And identity must be classified first.** 5,633 of 6,889 speakers appear in one
 story, and 医疗干员 is one vertex for 44 different people. A classifier sets

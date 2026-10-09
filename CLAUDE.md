@@ -454,18 +454,35 @@ cost us drift nothing could catch. `026` documented
 of which (敌对 / 对立) are the same relation. Nothing in code enumerated either
 vocabulary, so nothing could object.
 
-`entity_types` and `relation_kinds` are lookup tables with FKs from
-`entities.type` / `entity_relations.kind`: an unknown value now fails at write
-time, and a legitimate new one is an `INSERT`, never a migration. A `CHECK` would
-have forced a migration per value; free text forced nothing.
+**`entities.type` is closed; `entity_relations.kind` is not.** `entity_types` is
+a lookup table with an FK, so an unknown vertex type fails at write time and a
+legitimate new one is an `INSERT`. **`kind` stays free `TEXT` with no FK**, on the
+grounds that relations are more complex than discrete words: forcing
+凯尔希↔特蕾西娅 into 盟友 discards the thing worth keeping. The distinction is not
+arbitrary — "is this a nation or a place" has a discrete answer in a way "what is
+this relationship" does not.
 
-`relation_kinds` carries **`symmetric`**, so 盟友 is stored once with
-`from_entity_id < to_entity_id` — the canonical ordering is what makes
-`UNIQUE(from,to,kind)` mean anything, and `relations.ts` previously did this from
-a hardcoded JS `Set` covering only the kinds its own prompt suggested, which is
-how 对立 and 联络 slipped through. It also carries `from_role`/`to_role`, without
-which 师徒 is ambiguous and half the rows end up backwards. `category` splits
-`derived` (a join over `raw.profile`, no model) from `narrative` (extracted, cited).
+So the meaning of an edge lives in **`note` + `source_refs`**, which is more
+precise than any label could be, and `044` requires `note` by CHECK for anything
+that is not `source='derived'`. A free label makes the note more load-bearing,
+not less: the row only means something if it says what the citation supports.
+
+`relation_kinds` therefore survives as an **advisory registry, not a constraint**.
+It answers the one question free text cannot: **`is_symmetric`** — so 盟友 is
+stored once with `from_entity_id < to_entity_id`, the canonical ordering that
+makes `UNIQUE(from,to,kind)` mean anything. `relations.ts` previously answered it
+from a hardcoded JS `Set` covering only the kinds its own prompt suggested, which
+is how 对立 and 联络 came to be storable twice, once each way, both looking valid.
+An **unlisted** kind is allowed, treated as directed, and flagged
+`review = 'suspicious'` — the same queue the vague speakers go into, rather than
+a second mechanism. It also carries `from_role`/`to_role`, without which 师徒 is
+ambiguous and half the rows end up backwards.
+
+The column is `is_symmetric` and not `symmetric` because **`SYMMETRIC` is a
+reserved word in Postgres** (it belongs to `BETWEEN SYMMETRIC`), so that column
+would need quoting at every reference and the first one to forget is a syntax
+error. Checked the rest against the keyword list rather than from memory:
+`key`, `label`, `identity`, `source`, `type` and `name` are all non-reserved.
 
 **Grounding is enforced in the database, not in the prompt.** AP-36 says the
 check must be structural; `044` makes it one. `graph_refs_well_formed()` fixes
