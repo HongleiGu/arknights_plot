@@ -28,8 +28,8 @@ A missing data/comics.json is a no-op, not an error, matching every other
 importer.
 
 Usage:
-    conda run -n study python scripts/import_comics.py
-    conda run -n study python scripts/import_comics.py --dry-run
+    python scripts/import_comics.py
+    python scripts/import_comics.py --dry-run
 """
 
 from __future__ import annotations

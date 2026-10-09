@@ -35,15 +35,15 @@ citations point at an operator dossier we have not imported is still an event
 with evidence, and dropping the citation would make it look unsourced.
 
 Dependencies:
-    pip install supabase python-dotenv     (already in the `study` conda env)
+    see requirements.txt (supabase, python-dotenv)
 
 .env at the project root needs:
     SUPABASE_URL=https://[ref].supabase.co
     SUPABASE_SERVICE_ROLE_KEY=...
 
 Usage:
-    conda run -n study python scripts/import_timeline.py
-    conda run -n study python scripts/import_timeline.py --dry-run
+    python scripts/import_timeline.py
+    python scripts/import_timeline.py --dry-run
 """
 
 from __future__ import annotations

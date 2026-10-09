@@ -16,10 +16,10 @@ Idempotent: rows already in items.json are kept and skipped unless --force, and
 an icon already on disk is not re-downloaded.
 
 Usage:
-    conda run -n study python scripts/scrape_items.py
-    conda run -n study python scripts/scrape_items.py --force
-    conda run -n study python scripts/scrape_items.py --no-icons
-    conda run -n study python scripts/scrape_items.py --limit 50
+    python scripts/scrape_items.py
+    python scripts/scrape_items.py --force
+    python scripts/scrape_items.py --no-icons
+    python scripts/scrape_items.py --limit 50
 """
 
 import argparse
@@ -238,7 +238,7 @@ def main() -> None:
     OUT_JSON.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info(f"wrote {len(out)} item(s) to {OUT_JSON.relative_to(ROOT)} "
              f"({new} new, {icons} icon(s) fetched)")
-    log.info("next: conda run -n study python scripts/import_catalog.py --only items")
+    log.info("next: python scripts/import_catalog.py --only items")
 
 
 if __name__ == "__main__":

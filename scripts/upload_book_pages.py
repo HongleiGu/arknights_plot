@@ -34,9 +34,9 @@ Prereqs:
   • pdftoppm (poppler) on PATH; pip install boto3 pillow python-dotenv
 
 Usage:
-    conda run -n study python scripts/upload_book_pages.py
-    conda run -n study python scripts/upload_book_pages.py --pages 1-20
-    conda run -n study python scripts/upload_book_pages.py --no-upload   # render only
+    python scripts/upload_book_pages.py
+    python scripts/upload_book_pages.py --pages 1-20
+    python scripts/upload_book_pages.py --no-upload   # render only
 """
 
 from __future__ import annotations

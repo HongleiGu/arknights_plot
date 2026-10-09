@@ -49,8 +49,8 @@ Read the output in two tiers, which `substitutions` marks:
   that class entirely.
 
 Usage:
-    conda run -n study python scripts/check_book_ocr.py
-    conda run -n study python scripts/check_book_ocr.py --stop-chars 300   # tighter
+    python scripts/check_book_ocr.py
+    python scripts/check_book_ocr.py --stop-chars 300   # tighter
 """
 
 from __future__ import annotations

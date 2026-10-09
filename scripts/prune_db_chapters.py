@@ -27,8 +27,8 @@ SAFETY
     ON DELETE CASCADE), so removing a chapter removes its dialogue too.
 
 Usage:
-    conda run -n study python scripts/prune_db_chapters.py            # dry run
-    conda run -n study python scripts/prune_db_chapters.py --apply
+    python scripts/prune_db_chapters.py            # dry run
+    python scripts/prune_db_chapters.py --apply
 """
 
 import argparse

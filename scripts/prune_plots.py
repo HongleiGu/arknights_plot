@@ -22,8 +22,8 @@ conservative:
   • dry-run by default — pass --apply to delete.
 
 Usage:
-    conda run -n study python scripts/prune_plots.py            # dry run
-    conda run -n study python scripts/prune_plots.py --apply
+    python scripts/prune_plots.py            # dry run
+    python scripts/prune_plots.py --apply
 """
 
 import argparse
@@ -118,7 +118,7 @@ def main() -> None:
     for f in stale:
         f.unlink()
     print(f"\nDeleted {len(stale)} file(s).")
-    print("Now re-import: conda run -n study python scripts/run_pipeline.py --sync")
+    print("Now re-import: python scripts/run_pipeline.py --sync")
 
 
 if __name__ == "__main__":

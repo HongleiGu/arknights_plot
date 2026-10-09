@@ -33,8 +33,8 @@ re-fetches — the same call `scrape_terra_timeline.py` makes, and what makes ne
 episodes appear under `--sync`.
 
 Usage:
-    conda run -n study python scripts/scrape_comics.py
-    conda run -n study python scripts/scrape_comics.py --no-pages   # skip image URLs
+    python scripts/scrape_comics.py
+    python scripts/scrape_comics.py --no-pages   # skip image URLs
 """
 
 from __future__ import annotations

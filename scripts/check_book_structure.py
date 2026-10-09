@@ -29,8 +29,8 @@ So this asks the questions a person cannot ask by eye across 67 chapters:
 Exit code is 1 when anything is flagged, so it can gate a deploy.
 
 Usage:
-    conda run -n study python scripts/check_book_structure.py
-    conda run -n study python scripts/check_book_structure.py --json
+    python scripts/check_book_structure.py
+    python scripts/check_book_structure.py --json
 """
 
 from __future__ import annotations
@@ -94,9 +94,10 @@ def main() -> None:
     ap.add_argument("--json", action="store_true", help="machine-readable report")
     ap.add_argument("--out", metavar="PATH",
                     help="write the report to a file as UTF-8. Worth preferring on "
-                         "Windows: every chapter name here is Chinese and `conda run` "
-                         "re-encodes captured output with the system codepage, so a "
-                         "piped --json is not necessarily valid UTF-8.")
+                         "Windows: every chapter name here is Chinese, so a piped "
+                         "--json depends on the console codepage. This was acute "
+                         "under `conda run`, which re-encoded captured output; the "
+                         "venv python does not, but a file is still the safe route.")
     args = ap.parse_args()
 
     load_dotenv(ROOT / ".env")

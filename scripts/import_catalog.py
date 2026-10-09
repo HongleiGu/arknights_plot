@@ -14,16 +14,16 @@ import_gadgets.py / import_events.py use, so the pipeline can run before
 anything has been scraped.
 
 Dependencies:
-    pip install supabase python-dotenv     (already in the `study` conda env)
+    see requirements.txt (supabase, python-dotenv)
 
 .env at the project root needs:
     SUPABASE_URL=https://[ref].supabase.co
     SUPABASE_SERVICE_ROLE_KEY=...
 
 Usage:
-    conda run -n study python scripts/import_catalog.py            # both
-    conda run -n study python scripts/import_catalog.py --only enemies
-    conda run -n study python scripts/import_catalog.py --dry-run
+    python scripts/import_catalog.py            # both
+    python scripts/import_catalog.py --only enemies
+    python scripts/import_catalog.py --dry-run
 """
 
 import argparse
@@ -163,7 +163,7 @@ def main() -> None:
     if args.dry_run:
         log.info("dry run — nothing written")
     else:
-        log.info("done. icons: conda run -n study python scripts/upload_catalog_icons.py")
+        log.info("done. icons: python scripts/upload_catalog_icons.py")
 
 
 if __name__ == "__main__":

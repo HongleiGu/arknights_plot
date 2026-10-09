@@ -25,16 +25,37 @@ without losing `users` / `comments`:
 
 ## Run the pipeline
 
-**Python scripts run in the conda env `study`** — that's where `supabase`,
-`python-dotenv` and `requests` live. `run_pipeline.py` spawns each step with
-`sys.executable`, so launching it under `study` propagates to every step:
+**Python scripts run in the uv venv at `D:\venvs\global`.** Conda is gone — the
+env `study` that this file documented until 2026-10-09 no longer exists, and
+every docstring saying `conda run -n study python` was rewritten to plain
+`python`. Activate once per shell, or call that interpreter directly:
 
 ```bash
-conda run -n study python scripts/run_pipeline.py --sync   # pull in new wiki content
-conda run -n study python scripts/run_pipeline.py          # import local files only
-conda run -n study python scripts/run_pipeline.py --force  # DESTRUCTIVE full rebuild
-conda run -n study python scripts/run_pipeline.py --only wiki,upload
+D:\venvs\global\Scripts\activate                     # once per shell
+python scripts/run_pipeline.py --sync                # pull in new wiki content
+python scripts/run_pipeline.py                       # import local files only
+python scripts/run_pipeline.py --force               # DESTRUCTIVE full rebuild
+python scripts/run_pipeline.py --only wiki,upload
 ```
+
+**A bare `python` in an unactivated shell is the wrong interpreter.** On this
+machine `python` on PATH resolves to msys2's (`D:\msys2\ucrt64\bin\python.exe`),
+which has none of the packages and no CA bundle, so it fails either at
+`import supabase` or at TLS verification. Both are loud, but neither names the
+real cause. `run_pipeline.py` spawns each step with `sys.executable`, so getting
+the parent right still propagates to every step.
+
+Dependencies are in [requirements.txt](requirements.txt), derived from every
+`import` in `scripts/` rather than hand-kept:
+
+```bash
+uv pip install --python D:\venvs\global\Scripts\python.exe -r requirements.txt
+```
+
+Two things deliberately absent from it: `rapidocr-onnxruntime`, which only the
+MinerU-superseded `ocr_book.py` imports and which drags in onnxruntime for code
+nothing runs; and any PDF library, because page rasterising shells out to
+`pdftoppm` (poppler) — a PATH requirement, not a package.
 
 **`--sync` is the update path** — run it whenever a new event/story/operator
 ships. It runs every step with no `--force` and wipes nothing, so only the
@@ -86,6 +107,7 @@ tokens there would buy a worse result. That's why the real backlog was 1107
 chapters + 506 stories, not 2080 + 686.
 
 **Prereqs**
+- `requirements.txt` installed into `D:\venvs\global` (see above)
 - `.env` with `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`
 - Migrations `001_core.sql` … `008_is_text.sql` applied
 - Public bucket named **`data`** exists in Supabase Storage

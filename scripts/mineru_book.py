@@ -42,8 +42,8 @@ CDN URLs expire, and the local scan is the higher-resolution source. `bbox` is
 in the coordinate space `page_size` gives, so it is scaled to the render.
 
 Usage:
-    conda run -n study python scripts/mineru_book.py
-    conda run -n study python scripts/mineru_book.py --no-images
+    python scripts/mineru_book.py
+    python scripts/mineru_book.py --no-images
 """
 
 from __future__ import annotations

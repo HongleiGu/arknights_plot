@@ -42,8 +42,8 @@ makes it searchable by the assistant and the graph; whether any of it is
 publicly readable is a frontend decision, deliberately not made here.
 
 Usage:
-    conda run -n study python scripts/import_book.py
-    conda run -n study python scripts/import_book.py --dry-run
+    python scripts/import_book.py
+    python scripts/import_book.py --dry-run
 """
 
 from __future__ import annotations

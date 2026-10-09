@@ -20,9 +20,9 @@ Prereqs:
   • pip install boto3 pillow python-dotenv   (already in the `study` env)
 
 Usage:
-    conda run -n study python scripts/upload_catalog_icons.py
-    conda run -n study python scripts/upload_catalog_icons.py --dry-run
-    conda run -n study python scripts/upload_catalog_icons.py --only enemies
+    python scripts/upload_catalog_icons.py
+    python scripts/upload_catalog_icons.py --dry-run
+    python scripts/upload_catalog_icons.py --only enemies
 """
 
 import argparse

@@ -24,10 +24,10 @@ Idempotent: enemies already in enemies.json are skipped unless --force, and an
 icon already on disk is not re-downloaded — so an interrupted run resumes.
 
 Usage:
-    conda run -n study python scripts/scrape_enemies.py
-    conda run -n study python scripts/scrape_enemies.py --force
-    conda run -n study python scripts/scrape_enemies.py --limit 20
-    conda run -n study python scripts/scrape_enemies.py --no-icons
+    python scripts/scrape_enemies.py
+    python scripts/scrape_enemies.py --force
+    python scripts/scrape_enemies.py --limit 20
+    python scripts/scrape_enemies.py --no-icons
 """
 
 import argparse
@@ -347,7 +347,7 @@ def main() -> None:
     OUT_JSON.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info(f"wrote {len(out)} enemy(ies) to {OUT_JSON.relative_to(ROOT)} "
              f"({new} new, {icons} icon(s), {failed} failed)")
-    log.info("next: conda run -n study python scripts/import_catalog.py --only enemies")
+    log.info("next: python scripts/import_catalog.py --only enemies")
 
 
 if __name__ == "__main__":

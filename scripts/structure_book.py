@@ -30,7 +30,7 @@ remaining character errors (mostly proper nouns in 凯尔希's handwritten 批�
 are fixed later, so re-running the cheap structural pass never re-spends tokens.
 
 Usage:
-    conda run -n study python scripts/structure_book.py
+    python scripts/structure_book.py
 """
 
 from __future__ import annotations

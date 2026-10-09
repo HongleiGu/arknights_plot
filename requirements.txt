@@ -1,0 +1,25 @@
+# Python dependencies for scripts/.
+#
+# Conda is gone; the environment is a uv venv. CLAUDE.md has the invocation.
+# Install into the global venv:
+#     uv pip install --python D:\venvs\global\Scripts\python.exe -r requirements.txt
+#
+# Derived from every `import` in scripts/ rather than hand-kept, so it is the
+# whole list and nothing is here speculatively.
+
+supabase          # Postgres + Storage client; pulls in postgrest, which 9 scripts import directly
+python-dotenv     # every script reads .env itself rather than having it sourced
+requests          # prts.wiki scrapers
+boto3             # R2 uploads (upload_*.py)
+Pillow            # image conversion + the book's illustration crops
+certifi           # prune_db_chapters.py pins a CA bundle explicitly
+
+# NOT included, deliberately:
+#
+# rapidocr-onnxruntime — only ocr_book.py imports it, and that pipeline is
+#   superseded by MinerU (see CLAUDE.md). It drags in onnxruntime for code
+#   nothing runs. Install it ad hoc if the local OCR path is ever revived.
+#
+# PyMuPDF / pdf2image — not used. Page rasterising shells out to `pdftoppm`
+#   (poppler), an external binary that ships with Git for Windows, so it is a
+#   PATH requirement rather than a package.

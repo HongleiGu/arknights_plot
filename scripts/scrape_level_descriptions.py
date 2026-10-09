@@ -38,10 +38,10 @@ resumes instead of restarting, the same reason scrape_plots.py skips files that
 already exist.
 
 Usage:
-    conda run -n study python scripts/scrape_level_descriptions.py
-    conda run -n study python scripts/scrape_level_descriptions.py --limit 20
-    conda run -n study python scripts/scrape_level_descriptions.py --no-import
-    conda run -n study python scripts/scrape_level_descriptions.py --import-only
+    python scripts/scrape_level_descriptions.py
+    python scripts/scrape_level_descriptions.py --limit 20
+    python scripts/scrape_level_descriptions.py --no-import
+    python scripts/scrape_level_descriptions.py --import-only
 """
 
 from __future__ import annotations

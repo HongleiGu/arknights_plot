@@ -51,8 +51,8 @@ publish it wholesale, and the source is recorded on every row so it is never
 mistaken for something this project wrote.
 
 Usage:
-    conda run -n study python scripts/import_story_briefs.py --dry-run
-    conda run -n study python scripts/import_story_briefs.py
+    python scripts/import_story_briefs.py --dry-run
+    python scripts/import_story_briefs.py
 """
 
 from __future__ import annotations

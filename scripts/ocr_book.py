@@ -36,13 +36,14 @@ Output is one JSON per page so a 75-minute run is resumable: an existing page
 file is skipped, which makes Ctrl-C a pause rather than a loss (the same
 posture as every scraper here).
 
-Dependencies:  pip install rapidocr_onnxruntime   (in the `study` conda env)
+Dependencies:  pip install rapidocr_onnxruntime   (NOT in requirements.txt --
+               this pipeline is superseded by MinerU)
                pdftoppm (poppler) on PATH — ships with Git for Windows
 
 Usage:
-    conda run -n study python scripts/ocr_book.py --pdf "<file>.pdf"
-    conda run -n study python scripts/ocr_book.py --pages 118-122   # a range
-    conda run -n study python scripts/ocr_book.py --force           # redo pages
+    python scripts/ocr_book.py --pdf "<file>.pdf"
+    python scripts/ocr_book.py --pages 118-122   # a range
+    python scripts/ocr_book.py --force           # redo pages
 """
 
 from __future__ import annotations
