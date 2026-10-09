@@ -392,6 +392,51 @@ waiting to be taken — once AP-35 creates `nation` and `race` entities, those t
 fields are grounded character→nation and character→race edges needing no
 extraction at all, on a ticket costed at thousands of calls.
 
+**The world half comes from the book's table of contents** —
+`python scripts/seed_world_entities.py`. 大地巡旅's sections *are* the world's
+index: one `chapters` row per section, so each entity gets a name, a type and a
+`@chapter/<id>` citation with no model call. 83 rows: 19 `nation`, 36 `race`,
+11 `concept`, 9 `organisation`, 4 `place`, 4 `event`. 176 citations, 0
+unresolvable, 0 uncited.
+
+The mapping is a **written-out table, not parsed from `level_code` depth**,
+because the real tree does not support the latter: `4 泰拉种族` is one chapter
+covering every race (so races come from the operators' 基础档案 instead, not the
+TOC); titles are often essay titles rather than names (`5.4 高卢的遗产 GAUL:
+LEGACY`); and `5.x.1` is a mix of place, event and concept, which depth cannot
+tell apart. Sections that are not entities (`5.0 导论`, `6.9 组织名录`) sit in
+`SKIP` **with a reason**, and any section neither mapped nor skipped is logged —
+so a new printed section cannot quietly fail to enter the graph.
+
+**Names come from the book's prose, not its titles or from lore.** Measured over
+the book's own paragraphs: 炎国 appears in 104 and 大炎 in 2, so the section
+titled 大炎纵览 yields 炎国 with 大炎/炎 as aliases; 东国 in 35 against 极东 in 10,
+so 极东来信 yields 东国. Those aliases are load-bearing — operators report
+出身地 = 炎 and 东国, and an entity they cannot join to is one AP-36 cannot use.
+
+**These rows deliberately have no `summary`.** AP-35 said to take the section's
+opening prose; tested across all 66 sections, that fails for about a third,
+because the book is essays with literary openings — 武器与装备 opens on
+"得知我在进行怎样的写作后，一位朋友写信给我…" and 乌萨斯 on a memoir about a poet
+friend. Epigraphs *are* skipped correctly (`raw_params.aside`, what the reader's
+`>>` blocks record); the body paragraph itself is the problem. A summary that is
+right two thirds of the time and indistinguishable when wrong is worse than an
+empty one — the same rule as "a wrong citation reads as grounded". The first
+body paragraph is parked in `raw.opening`, labelled as that and not as a
+definition, for the model pass to write `summary` with `ai_draft` status.
+
+`UNIQUE (type, name)` is per type, which is why 乌萨斯 can be both a `nation` and
+a `race`, and 罗德岛 both an `organisation` and a speaker — all correct, and all
+why the three seeders cannot collide.
+
+**What this unlocked, measured:** 373 of 382 operators with a usable 出身地 and
+376 of 384 with a usable 种族 now resolve to an entity — so AP-36's first ~750
+edges are a join away. The 8 unresolved 种族 are excluded on purpose and
+reported: `（自称）` values (the Delicious-in-Dungeon collab operators, where
+"self-described" is the point), and one genuinely corrupted 基础档案 —
+伊芙利特's, which parses as `萨■卡訧譱瀫? +Z??高】16圁纮 cm` and is a defect in the
+scraped profile, not here.
+
 Alternate operator forms get their own row: 涤火杰西卡 and 杰西卡 are separate
 records with separate 档案 and separate 客观履历. CLAUDE.md already lists `同一人`
 as a relation kind, so an edge is the right home for that — deriving the pairing

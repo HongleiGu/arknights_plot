@@ -8,7 +8,7 @@ Measured state at the time of writing (2026-09-28):
 
 | | |
 |---|---|
-| `entities` | 6,984 — **all `character`**; 432 now carry a scraped summary (2026-10-09) |
+| `entities` | 7,067 — 6,984 `character` (432 with a scraped summary) + 83 world rows: 36 `race`, 19 `nation`, 11 `concept`, 9 `organisation`, 4 `place`, 4 `event` (2026-10-09) |
 | `entity_relations` | **11** |
 | `content_summaries` | **14** (13 chapter, 1 story) of ~2,400 possible targets |
 | `chapter_descriptions` (curated, count as done) | 973 |
@@ -18,12 +18,26 @@ Measured state at the time of writing (2026-09-28):
 
 ---
 
-## AP-35 · Entity types beyond `character`
+## AP-35 · Entity types beyond `character`  — DONE except summaries
 
-**Problem.** `entities` holds 6,885 rows and every one is a `character`, because
-`seed_entities.py` derives them from distinct `nodes.speaker`. There is not one
-location, faction, race or concept. A knowledge graph of a cast list can answer
-"who spoke" and nothing else, and it is why AP-38 has nothing to traverse.
+**Done 2026-10-09**, no model calls: `seed_world_entities.py` created 83 world
+entities from 大地巡旅's table of contents and the operators' 基础档案 — 19
+`nation`, 36 `race`, 11 `concept`, 9 `organisation`, 4 `place`, 4 `event`, with
+176 citations, 0 unresolvable and 0 uncited. CLAUDE.md records why the mapping is
+a written-out table rather than parsed from `level_code` depth.
+
+**What is left of this ticket is the summaries, and they need the model.**
+Acceptance said "each with a type, a citation and a summary"; the first two are
+met, the third is not, because the book's opening prose is an authorial aside
+about a third of the time and a summary that is wrong one time in three is worse
+than none. The first body paragraph sits in `entities.raw.opening` for a model
+pass to work from, which folds into AP-37.
+
+**Original problem.** `entities` held 6,885 rows and every one was a `character`,
+because `seed_entities.py` derives them from distinct `nodes.speaker`. There was
+not one location, faction, race or concept. A knowledge graph of a cast list can
+answer "who spoke" and nothing else, and it is why AP-38 had nothing to
+traverse.
 
 **Approach — derive, don't extract.** The same posture as `seed_entities.py`
 (characters from who actually speaks) and `scrape_terra_timeline.py` (a curated
@@ -109,12 +123,18 @@ invented citation looks exactly like a real one.
 - A hand-checked sample of ≥30 edges supports its citation.
 - The pass is resumable: killing it mid-run loses no completed work.
 
-**A slice of this needs no model at all.** `entities.raw.profile` already holds
-every operator's 出身地 and 种族, parsed from the game's own 基础档案 — 424
-operators, 32 nations, 45 races. Once AP-35 creates those entities, that is
-~850 edges with a `@text/<id>` citation each, by join. Do it **first**: it costs
-nothing, and it gives the extraction pass a populated graph to be measured
+**A slice of this needs no model at all, and AP-35 has now made it a join.**
+`entities.raw.profile` holds every operator's 出身地 and 种族 from the game's own
+基础档案, and as of 2026-10-09 the target entities exist: **373 of 382 operators
+resolve to a `nation`/`place`/`organisation` and 376 of 384 to a `race`**. That
+is ~750 edges, each citable to the 基础档案 chunk it came from. Do it **first**:
+it costs nothing and gives the extraction pass a populated graph to be measured
 against instead of an empty one.
+
+The 9 + 8 that do not resolve are excluded deliberately, not missing: `（自称）`
+values where self-description is the point, 阿戈尔地区 / 汐斯塔（独立城邦） which
+qualify a name rather than state one, 瓦伊凡 / 杜林 appearing as 出身地 when they
+are races, and one corrupted 基础档案 (伊芙利特's).
 
 What genuinely needs a model is the relations no field states — who allies with,
 opposes, commands or betrays whom — and those are the ones where the
