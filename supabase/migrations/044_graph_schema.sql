@@ -71,6 +71,25 @@ CREATE TABLE IF NOT EXISTS relation_kinds (
   to_role   TEXT
 );
 
+-- ADVISORY, NOT ENFORCING. `entity_relations.kind` stays free TEXT with no FK.
+--
+-- A closed list was considered and rejected: relations are more complex than
+-- discrete words, and forcing 凯尔希↔特蕾西娅 into 盟友 throws away exactly the
+-- thing worth keeping. The meaning lives in `note` plus `source_refs`, which is
+-- more precise than any label, so the label is free to be whatever the text
+-- actually supports.
+--
+-- This table exists for the one question free text cannot answer on its own:
+-- **is this kind symmetric?** Without an answer, 盟友 can be stored twice — once
+-- each way — and `UNIQUE(from,to,kind)` stops meaning anything, because the
+-- canonical `from_entity_id < to_entity_id` ordering has nothing to key off.
+-- `relations.ts` currently answers it from a hardcoded JS Set covering only the
+-- kinds its own prompt suggested, which is how 对立 and 联络 fell through.
+--
+-- So: a kind listed here is handled as declared. **A kind that is NOT listed is
+-- treated as directed and the row is flagged `review = 'suspicious'`** — which
+-- is the same manual-review queue the vague speakers go into, rather than a
+-- second mechanism. New kinds are expected; they just get looked at once.
 INSERT INTO relation_kinds (key, label, symmetric, category, from_role, to_role) VALUES
   -- derived: a join over entities.raw.profile, citable to the 基础档案 chunk
   ('出身',   '出身',   FALSE, 'derived',   '人物', '国家/地点'),
@@ -88,8 +107,16 @@ INSERT INTO relation_kinds (key, label, symmetric, category, from_role, to_role)
   ('师徒',   '师徒',   FALSE, 'narrative', '师',   '徒'),
   ('恋慕',   '恋慕',   FALSE, 'narrative', '爱慕者', '对象'),
   ('统治',   '统治',   FALSE, 'narrative', '统治者', '国家/地点'),
-  ('创立',   '创立',   FALSE, 'narrative', '创立者', '组织')
+  ('创立',   '创立',   FALSE, 'narrative', '创立者', '组织'),
+  -- generic: connected in a way no word names. `note` carries it.
+  ('关联',   '关联',   TRUE,  'narrative', NULL,   NULL)
 ON CONFLICT (key) DO NOTHING;
+
+COMMENT ON TABLE relation_kinds IS
+  'Advisory registry for entity_relations.kind, which is free text. Supplies '
+  'symmetry (so symmetric edges canonicalise to from<to and UNIQUE means '
+  'something) and the role of each end for directed kinds. An unlisted kind is '
+  'allowed, treated as directed, and flagged review=suspicious.';
 
 -- ---------- identity: the thing that was actually broken ---------------------
 --
@@ -188,18 +215,30 @@ ALTER TABLE entities DROP CONSTRAINT IF EXISTS entities_type_fk;
 ALTER TABLE entities ADD CONSTRAINT entities_type_fk
   FOREIGN KEY (type) REFERENCES entity_types(key);
 
+-- No FK on entity_relations.kind, deliberately — see relation_kinds above. An
+-- unrecognised kind is a review item, not a write failure. Dropped explicitly in
+-- case an earlier run of this file added it.
 ALTER TABLE entity_relations DROP CONSTRAINT IF EXISTS entity_relations_kind_fk;
-ALTER TABLE entity_relations ADD CONSTRAINT entity_relations_kind_fk
-  FOREIGN KEY (kind) REFERENCES relation_kinds(key);
 
--- ---------- an edge may not hang off an unreviewed vertex --------------------
+-- ---------- `note` is where the meaning lives, so it is required ------------
 --
--- A CHECK cannot read another table, so this is a trigger. It is the structural
--- half of the workflow: the model may write edges, but not onto a vertex that is
--- a composite (医疗干员) or not a person at all (众人) — and not onto one a human
--- has flagged and not yet cleared. The database refuses, rather than the prompt
--- asking nicely.
-CREATE OR REPLACE FUNCTION entity_relations_endpoints_usable()
+-- `kind` being free text makes `note` more important, not less: the label is now
+-- whatever the extractor chose, so the row only means something if it says what
+-- the citation actually supports. An edge labelled 关联 with no note says
+-- nothing at all. Keyed on `source` rather than on the kind, because with free
+-- text there is no reliable category to look up — and `derived` edges genuinely
+-- need none, since the 基础档案 field IS the meaning.
+ALTER TABLE entity_relations DROP CONSTRAINT IF EXISTS entity_relations_has_note;
+ALTER TABLE entity_relations ADD CONSTRAINT entity_relations_has_note
+  CHECK (source = 'derived' OR COALESCE(btrim(note), '') <> '');
+
+-- ---------- an edge may not hang off an unreviewed vertex -------------------
+--
+-- A CHECK cannot read another table, so this is a trigger. The model may write
+-- edges, but not onto a vertex that is a composite (医疗干员, forty-four people)
+-- or not a person at all (众人) — nor onto one a human has flagged and not yet
+-- cleared. The database refuses, rather than the prompt asking nicely.
+CREATE OR REPLACE FUNCTION entity_relations_guard()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 DECLARE bad TEXT;
 BEGIN
@@ -218,9 +257,10 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS trg_entity_relations_endpoints ON entity_relations;
-CREATE TRIGGER trg_entity_relations_endpoints
-  BEFORE INSERT OR UPDATE OF from_entity_id, to_entity_id ON entity_relations
-  FOR EACH ROW EXECUTE FUNCTION entity_relations_endpoints_usable();
+DROP TRIGGER IF EXISTS trg_entity_relations_guard ON entity_relations;
+CREATE TRIGGER trg_entity_relations_guard
+  BEFORE INSERT OR UPDATE ON entity_relations
+  FOR EACH ROW EXECUTE FUNCTION entity_relations_guard();
 
 -- ---------- RLS on the vocabulary tables, mirroring 026 ----------------------
 ALTER TABLE entity_types   ENABLE ROW LEVEL SECURITY;

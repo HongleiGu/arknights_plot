@@ -12,6 +12,12 @@ const SECTIONS: { href: string; label: string; en: string; desc: string }[] = [
     desc: '预算与计价、用户级访问、内容摘要生成、世界图谱关系抽取',
   },
   {
+    href: '/admin/entities',
+    label: '实体复核',
+    en: 'ENTITY REVIEW',
+    desc: '判定说话人是具名人物、泛指身份还是非人物；关系抽取前的必要一步',
+  },
+  {
     href: '/mod',
     label: '审核',
     en: 'MODERATION',
