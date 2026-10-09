@@ -19,7 +19,10 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 
-export const MANUAL_SOURCE = 'manual'
+// NOT exported: a 'use server' module may only export async functions, and
+// one `export const` makes Next treat the whole file as having no exports —
+// which broke the build for every action in here.
+const MANUAL_SOURCE = 'manual'
 
 export interface ChapterDescription {
   chapterId: number
