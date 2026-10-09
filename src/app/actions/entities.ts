@@ -278,6 +278,235 @@ export async function deleteEntity(
   return { ok: true }
 }
 
+export interface MergeCandidate {
+  keepId: number
+  keepName: string
+  keepLines: number
+  dropId: number
+  dropName: string
+  dropLines: number
+  /** Why these two look like one character. */
+  basis: string
+}
+
+/**
+ * Pairs that look like the same character, on grounded evidence only.
+ *
+ * Two signals, both from official text rather than from similarity:
+ *  1. one name CONTAINS the other — 荒芜拉普兰德 ⊃ 拉普兰德, which is how the game
+ *     names an operator's alternate form;
+ *  2. and the longer one's official 客观履历 opens by naming the shorter one
+ *     ("拉普兰德，无业，叙拉古萨卢佐家族现任家主阿尔贝托的独女…" on 荒芜拉普兰德's row).
+ *
+ * Signal 2 is what makes this more than string matching: 夜莺 contains 莺 by
+ * accident, but no 客观履历 introduces it as 莺. Containment alone is offered
+ * when there is no summary to check, marked as the weaker basis.
+ */
+export async function findMergeCandidates(): Promise<
+  { candidates: MergeCandidate[] } | { error: string }
+> {
+  const bad = await guard()
+  if (bad) return { error: bad }
+  const db = await createClient()
+
+  const rows: { id: number; name: string; summary: string | null; mention_count: number }[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data } = await db.from('entities')
+      .select('id, name, summary, mention_count')
+      .eq('type', 'character').range(from, from + 999)
+    const got = (data ?? []) as typeof rows
+    rows.push(...got)
+    if (got.length < 1000) break
+  }
+
+  // Only pairs where the longer name's own official 客观履历 OPENS BY NAMING the
+  // shorter one. Containment alone is useless here: it yields 4,810 pairs, led
+  // by 曼弗雷德→雷德 and 华法琳→法琳, and offering those as one-click irreversible
+  // merges would be actively dangerous.
+  //
+  // Two traps, both found by running it:
+  //  - a summary starting with the LONG name trivially starts with its own
+  //    prefix, so 幽灵鲨 "matched" 幽灵 and 薇薇安娜 "matched" 薇薇安. Excluded by
+  //    requiring the summary NOT to open with the long name.
+  //  - several base names can match at once — 归溟幽灵鲨's summary opens "幽灵鲨，"
+  //    which starts with both 幽灵鲨 and 幽灵 — so only the LONGEST match is kept.
+  //
+  // A boundary check on the next character was tried instead and is wrong:
+  // 百炼嘉维尔's summary runs "嘉维尔现在仍是…" with no punctuation, and that is a
+  // true pair.
+  const best = new Map<number, { short: typeof rows[number]; long: typeof rows[number] }>()
+  for (const long of rows) {
+    if (long.name.length < 3) continue
+    const summary = long.summary ?? ''
+    if (!summary || summary.startsWith(long.name)) continue
+    for (const short of rows) {
+      if (short.id === long.id || short.name.length < 2) continue
+      if (!long.name.includes(short.name)) continue
+      if (!summary.startsWith(short.name)) continue
+      const held = best.get(long.id)
+      if (!held || short.name.length > held.short.name.length) {
+        best.set(long.id, { short, long })
+      }
+    }
+  }
+
+  const out: MergeCandidate[] = [...best.values()].map(({ short, long }) => ({
+    // The base form is kept: it is the name the rest of the canon uses, and it
+    // carries the dialogue history (the alternate form usually has none).
+    keepId: short.id, keepName: short.name, keepLines: short.mention_count,
+    dropId: long.id, dropName: long.name, dropLines: long.mention_count,
+    basis: `「${long.name}」的官方客观履历开头即称其为「${short.name}」`,
+  }))
+  out.sort((a, b) => b.keepLines - a.keepLines)
+  return { candidates: out }
+}
+
+export interface MergeReport {
+  relationsMoved: number
+  relationsDropped: number
+  commentsMoved: number
+  boardMembersMoved: number
+  boardTextRewritten: number
+  aliasesAdded: string[]
+  tookSummary: boolean
+}
+
+/**
+ * Merge `dropId` into `keepId`: everything that referenced the one is repointed
+ * at the other, then the duplicate row is deleted.
+ *
+ * ORDER MATTERS AND IS THE WHOLE RISK. `entity_relations.from/to_entity_id`,
+ * `comment_anchors.entity_id` and `correlation_members.entity_id` all declare
+ * `ON DELETE CASCADE` (026 / 027), so deleting the row first would silently take
+ * a reader's comment and a board node with it. Everything is moved before
+ * anything is deleted.
+ *
+ * Four things are handled that a naive UPDATE would get wrong:
+ *  - a repointed edge can become a SELF-LOOP (A—kind→A) and `026`'s
+ *    `entity_relations_no_self` CHECK refuses it, so those are dropped;
+ *  - it can COLLIDE with an existing (from, to, kind) under the UNIQUE
+ *    constraint, so a duplicate is dropped rather than erroring;
+ *  - a symmetric kind must keep `from < to` — the canonical ordering is what
+ *    makes that UNIQUE mean anything — so the ends are swapped if repointing
+ *    inverted them, with symmetry read from `relation_kinds`, not guessed;
+ *  - board node TEXT may contain `@entity/<dropId>`, which no FK can repoint.
+ *    Those tokens are rewritten, and `033`'s `sync_member_refs` trigger
+ *    reindexes `correlation_member_refs` from the new text by itself.
+ */
+export async function mergeEntities(
+  keepId: number, dropId: number,
+): Promise<{ report: MergeReport } | { error: string }> {
+  const bad = await guard()
+  if (bad) return { error: bad }
+  if (keepId === dropId) return { error: '不能与自身合并' }
+  const db = await createClient()
+
+  const { data: pair } = await db.from('entities')
+    .select('id, type, name, aliases, summary, summary_status, identity, review, raw')
+    .in('id', [keepId, dropId])
+  const keep = (pair ?? []).find(e => e.id === keepId)
+  const drop = (pair ?? []).find(e => e.id === dropId)
+  if (!keep || !drop) return { error: '找不到其中一个实体' }
+  if (keep.type !== drop.type) {
+    return { error: `类型不同（${keep.type} / ${drop.type}），不能合并` }
+  }
+  // Refuse rather than quietly deciding for the admin: the trigger would block
+  // repointing edges onto a device/suspicious row anyway, and silently marking
+  // the target reviewed would be making their judgement for them.
+  if (keep.identity === 'device' || keep.review === 'suspicious') {
+    return { error: `目标「${keep.name}」还没判定（${keep.identity}/${keep.review}），请先判定再合并` }
+  }
+
+  const report: MergeReport = {
+    relationsMoved: 0, relationsDropped: 0, commentsMoved: 0,
+    boardMembersMoved: 0, boardTextRewritten: 0, aliasesAdded: [], tookSummary: false,
+  }
+
+  const { data: kinds } = await db.from('relation_kinds').select('key, is_symmetric')
+  const symmetric = new Set(((kinds ?? []) as { key: string; is_symmetric: boolean }[])
+    .filter(k => k.is_symmetric).map(k => k.key))
+
+  const { data: rels } = await db.from('entity_relations')
+    .select('id, from_entity_id, to_entity_id, kind')
+    .or(`from_entity_id.eq.${dropId},to_entity_id.eq.${dropId}`)
+  const { data: existing } = await db.from('entity_relations')
+    .select('from_entity_id, to_entity_id, kind')
+  const taken = new Set(((existing ?? []) as { from_entity_id: number; to_entity_id: number; kind: string }[])
+    .map(r => `${r.from_entity_id}|${r.to_entity_id}|${r.kind}`))
+
+  for (const r of ((rels ?? []) as { id: number; from_entity_id: number; to_entity_id: number; kind: string }[])) {
+    let a = r.from_entity_id === dropId ? keepId : r.from_entity_id
+    let b = r.to_entity_id === dropId ? keepId : r.to_entity_id
+    if (a === b) {                                   // self-loop
+      await db.from('entity_relations').delete().eq('id', r.id)
+      report.relationsDropped++
+      continue
+    }
+    if (symmetric.has(r.kind) && a > b) { const t = a; a = b; b = t }
+    if (taken.has(`${a}|${b}|${r.kind}`)) {          // duplicate
+      await db.from('entity_relations').delete().eq('id', r.id)
+      report.relationsDropped++
+      continue
+    }
+    const { error } = await db.from('entity_relations')
+      .update({ from_entity_id: a, to_entity_id: b }).eq('id', r.id)
+    if (error) return { error: `迁移关系 ${r.id} 失败：${error.message}` }
+    taken.add(`${a}|${b}|${r.kind}`)
+    report.relationsMoved++
+  }
+
+  const { data: anchors } = await db.from('comment_anchors')
+    .update({ entity_id: keepId }).eq('entity_id', dropId).select('id')
+  report.commentsMoved = anchors?.length ?? 0
+
+  const { data: members } = await db.from('correlation_members')
+    .update({ entity_id: keepId }).eq('entity_id', dropId).select('id')
+  report.boardMembersMoved = members?.length ?? 0
+
+  // No FK can repoint a token inside user-authored text, so rewrite it. The
+  // meaning is unchanged — it is the same entity — and the alternative is a
+  // citation that silently stops resolving.
+  const { data: texts } = await db.from('correlation_members')
+    .select('id, title, body').or(`title.ilike.%@entity/${dropId}%,body.ilike.%@entity/${dropId}%`)
+  for (const m of ((texts ?? []) as { id: number; title: string | null; body: string | null }[])) {
+    const re = new RegExp(`@entity/${dropId}\\b`, 'g')
+    const patch = {
+      title: m.title?.replace(re, `@entity/${keepId}`) ?? m.title,
+      body: m.body?.replace(re, `@entity/${keepId}`) ?? m.body,
+    }
+    await db.from('correlation_members').update(patch).eq('id', m.id)
+    report.boardTextRewritten++
+  }
+
+  const aliases = new Set<string>([
+    ...((keep.aliases ?? []) as string[]),
+    ...((drop.aliases ?? []) as string[]),
+    drop.name as string,
+  ])
+  aliases.delete(keep.name as string)
+  report.aliasesAdded = [...aliases].filter(a => !((keep.aliases ?? []) as string[]).includes(a))
+
+  const raw = { ...((keep.raw ?? {}) as Record<string, unknown>) }
+  const history = Array.isArray(raw.merged_from) ? raw.merged_from as unknown[] : []
+  raw.merged_from = [...history, { id: dropId, name: drop.name, at: new Date().toISOString() }]
+
+  const patch: Record<string, unknown> = { aliases: [...aliases], raw }
+  if (!keep.summary && drop.summary) {
+    patch.summary = drop.summary
+    patch.summary_status = drop.summary_status
+    report.tookSummary = true
+  }
+  const { error: upErr } = await db.from('entities').update(patch).eq('id', keepId)
+  if (upErr) return { error: `更新目标实体失败：${upErr.message}` }
+
+  const { data: del } = await db.from('entities').delete().eq('id', dropId).select('id')
+  if (!del?.length) return { error: '合并已完成但删除重复行失败（RLS 拒绝？）' }
+
+  revalidatePath('/admin/entities')
+  revalidatePath(`/world/${keepId}`)
+  return { report }
+}
+
 /** Counts for the queue header, so progress is visible. */
 export async function reviewProgress(): Promise<
   { byIdentity: Record<string, number>; suspicious: number } | { error: string }

@@ -8,6 +8,7 @@ import {
 } from '@/lib/graph'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 import EntityReviewList from '@/components/EntityReviewList'
+import EntityMergePanel from '@/components/EntityMergePanel'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,6 +121,8 @@ export default async function EntityReviewPage({ searchParams }: Props) {
           </span>
         </div>
       )}
+
+      <EntityMergePanel />
 
       {/* A plain form, server-rendered, like /world — no client JS for filters. */}
       <form action="/admin/entities" className="flex gap-2 flex-wrap items-end mb-6">

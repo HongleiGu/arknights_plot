@@ -154,6 +154,12 @@ function Row({ row }: { row: ReviewRow }) {
         </div>
       )}
 
+      {state.reviewNote && (
+        <p className="mt-1 text-[10px] text-ark-muted leading-relaxed">
+          {'//'} {state.reviewNote}
+        </p>
+      )}
+
       {open && (
         <div className="mt-3 border-l border-ark-border pl-3 space-y-2">
           {evidence === null && <p className="text-[10px] text-ark-muted">{'//'} 读取中…</p>}
