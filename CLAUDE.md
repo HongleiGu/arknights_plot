@@ -507,11 +507,34 @@ three different things:
 
 So `entities.identity` is `unverified | named | scoped | device` and defaults to
 **`unverified`**, not `named`: 6,889 rows arrived from a speaker column and
-nothing has vouched for them. Each seeder sets what it knows; a classifier
-demotes the rest and sets `review = 'suspicious'` for a human pass. A trigger
-refuses to attach an edge to a `device` or `suspicious` endpoint — the model may
-write edges, but not onto a vertex that is a composite or not a person, and the
-database refuses rather than the prompt asking nicely.
+nothing has vouched for them. A trigger refuses to attach an edge to a `device`
+or `suspicious` endpoint — the model may write edges, but not onto a vertex that
+is a composite or not a person, and the database refuses rather than the prompt
+asking nicely.
+
+`python scripts/classify_entities.py` fills in what is **known** and refuses the
+rest: 515 rows go to `named` on documentary grounds — the 432 operators by
+`raw.source = 'personnel_file/客观履历'` (keyed on the evidence, not on merely
+having a summary, so a later model-written one cannot be mistaken for it) and the
+83 world rows, which are not speakers at all. 535 are flagged `suspicious` with
+the measured evidence in `review_note`; the remaining 6,017 are the one-story
+long tail and are left alone, because flagging them would bury the real
+decisions and the trigger permits edges onto `unverified` anyway.
+
+**The hints in `review_note` are suggestions and never set `identity`.** A name
+ending in 的声音, or containing 干员/士兵/成员, is good evidence — but 医疗干员 and
+耀骑士临光 both "contain a role word", and 父亲 matches nothing while being the
+clearest device in the data. The first version of the hint also asserted that
+appearing in many stories implied a descriptor, which is **false and was caught
+by its own output** labelling 魏彦吾 (15 stories) that way while 凯尔希 appears in
+51. The usable signal is lines **per** story — 医疗干员 averages 14, 后勤干员 10,
+工作人员 14, against 塔露拉 94 and 特蕾西娅 115 — and even that misfires (文月
+averages 29 and is a real person), which is exactly why it only writes a note.
+
+Review UI: `/admin/entities`, global rather than per-story because the judgement
+is about the entity — 医疗干员 is in 44 stories, so per-story means 44 visits and
+44 chances to decide differently — with the evidence brought to it
+(`getEntityEvidence` shows where the name speaks, with line counts and real lines).
 
 **`？？？` needs no handling and should keep none.** `seed_entities.py` and
 `scope_speakers()` both exclude `^[？?]+$`. A masked speaker is an unresolved
