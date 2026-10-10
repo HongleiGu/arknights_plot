@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import {
   listReviewQueue, reviewProgress, listStoryReviewProgress, listStoryCast,
+  listStoriesPlain,
 } from '@/app/actions/entities'
 import { IDENTITIES, IDENTITY_LABEL, type Identity, type Review } from '@/lib/graph'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
@@ -190,20 +191,71 @@ export default async function EntityReviewPage({ searchParams }: Props) {
 
   // ---- the work list: which stories still have unjudged speakers ------------
   const prog = await listStoryReviewProgress()
-  if ('error' in prog) {
+
+  // Without 045 the cast view still works — it runs on scope_speakers() (034) —
+  // so the only thing missing is knowing which story to open. Fall back to a
+  // plain list rather than blocking: 045 buys the per-story counts, not the
+  // feature.
+  if ('error' in prog && prog.missing) {
+    const plain = await listStoriesPlain()
+    if ('error' in plain) {
+      return <Shell><p className="text-ark-danger">{plain.error}</p></Shell>
+    }
+    const list = sp.cat
+      ? plain.stories.filter(s => s.category === sp.cat)
+      : plain.stories
+    const cs = [...new Set(plain.stories.map(s => s.category))]
     return (
       <Shell>
-        <p className="text-ark-danger">{prog.error}</p>
-        {prog.missing && (
-          <p className="mt-4 text-[11px] text-ark-muted leading-relaxed font-sans">
-            迁移 <code className="text-ark-text">045_story_review_progress.sql</code>{' '}
-            还没应用——它要在 Supabase SQL 编辑器里手动执行。
-            在那之前可以先用{' '}
-            <Link href="/admin/entities?mode=all" className="text-ark-accent">全局列表</Link>。
+        <p className="text-[11px] text-ark-muted leading-relaxed mb-4 font-sans">
+          迁移 <code className="text-ark-text">045_story_review_progress.sql</code>{' '}
+          还没应用，所以这里<b className="text-ark-text">没有每个故事的待办数</b>。
+          按故事复核本身不需要它——下面任选一个故事即可开始。
+          应用 045 之后，这个列表会按「还有多少说话人没判定」排序，
+          并且台词展开会用上 <code className="text-ark-text">nodes(speaker)</code> 索引
+          （现在是对 414,720 行做全表扫描）。
+        </p>
+        <div className="flex gap-2 flex-wrap mb-4 text-[10px] uppercase tracking-widest">
+          <Link href="/admin/entities"
+                className={`px-2 py-1 border ${!sp.cat
+                  ? 'border-ark-accent text-ark-accent' : 'border-ark-border text-ark-muted'}`}>
+            全部
+          </Link>
+          {cs.map(c => (
+            <Link key={c} href={`/admin/entities?cat=${encodeURIComponent(c)}`}
+                  className={`px-2 py-1 border ${sp.cat === c
+                    ? 'border-ark-accent text-ark-accent' : 'border-ark-border text-ark-muted'}`}>
+              {c}
+            </Link>
+          ))}
+          <Link href="/admin/entities?mode=all" className="ml-auto px-2 py-1 text-ark-accent">
+            {'//'} 全局列表 →
+          </Link>
+        </div>
+        <ul className="space-y-1">
+          {list.slice(0, 300).map(s => (
+            <li key={s.storyId}>
+              <Link href={`/admin/entities?story=${s.storyId}`}
+                    className="flex items-baseline gap-3 border border-ark-border px-3 py-2
+                               hover:border-ark-accent-dim hover:bg-ark-accent/5 transition-colors">
+                <span className="text-[9px] text-ark-muted uppercase tracking-widest w-16 shrink-0">
+                  {s.category}
+                </span>
+                <span className="text-[12px] text-ark-text truncate">{s.storyName}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+        {list.length > 300 && (
+          <p className="mt-3 text-[10px] text-ark-muted">
+            {'//'} 还有 {list.length - 300} 个故事，用上面的分类筛选
           </p>
         )}
       </Shell>
     )
+  }
+  if ('error' in prog) {
+    return <Shell><p className="text-ark-danger">{prog.error}</p></Shell>
   }
 
   const cats = [...new Set(prog.progress.map(p => p.category))]

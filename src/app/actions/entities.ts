@@ -313,6 +313,46 @@ export async function listStoryReviewProgress(): Promise<
 }
 
 /**
+ * A plain story list, for when `045` has not been applied yet.
+ *
+ * The cast view itself needs nothing new — it runs on `scope_speakers()` (034) —
+ * so the only thing missing without `045` is knowing WHICH story to open. This
+ * supplies that from `stories` alone, without the unresolved counts, so the
+ * review is usable immediately and `045` is an upgrade rather than a gate.
+ *
+ * 漫画 and 大地巡旅 are excluded: comics have chapters but no imported dialogue,
+ * and the book's only speaker is `narrator`, which `scope_speakers()` filters —
+ * both would open to an empty cast.
+ */
+export async function listStoriesPlain(): Promise<
+  { stories: { storyId: number; storyName: string; category: string }[] } | { error: string }
+> {
+  const bad = await guard()
+  if (bad) return { error: bad }
+  const db = await createClient()
+  const rows: { id: number; name: string; category: string; seq: number | null }[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from('stories')
+      .select('id, name, category, seq')
+      .not('category', 'in', '("漫画","大地巡旅")')
+      .range(from, from + 999)
+    if (error) return { error: error.message }
+    const got = (data ?? []) as typeof rows
+    rows.push(...got)
+    if (got.length < 1000) break
+  }
+  rows.sort((a, b) =>
+    a.category.localeCompare(b.category)
+    || (a.seq ?? 1e9) - (b.seq ?? 1e9)
+    || a.id - b.id)
+  return {
+    stories: rows.map(r => ({
+      storyId: r.id, storyName: r.name, category: r.category,
+    })),
+  }
+}
+
+/**
  * Every speaker in one story, with the context needed to judge it there.
  *
  * Sample lines come from THIS story only. That is the point of working per
