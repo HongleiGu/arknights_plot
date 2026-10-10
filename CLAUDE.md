@@ -531,10 +531,46 @@ by its own output** labelling 魏彦吾 (15 stories) that way while 凯尔希 ap
 工作人员 14, against 塔露拉 94 and 特蕾西娅 115 — and even that misfires (文月
 averages 29 and is a real person), which is exactly why it only writes a note.
 
-Review UI: `/admin/entities`, global rather than per-story because the judgement
-is about the entity — 医疗干员 is in 44 stories, so per-story means 44 visits and
-44 chances to decide differently — with the evidence brought to it
-(`getEntityEvidence` shows where the name speaks, with line counts and real lines).
+**Review is PER STORY** (`/admin/entities`, work list from
+`story_review_progress()` in `045`). A global queue was built first, on the
+argument that the judgement is about the entity rather than the story. That was
+wrong about the thing that actually goes wrong: **name similarity across 715
+stories is where coincidence lives.** 安娜 is not 薇薇安娜, 瑟琳 is not 凯瑟琳,
+威尔 is not 诺威尔 — of six containment pairs that survived a strict rule, four
+were suffix accidents, because the ending of a Chinese transliteration carries no
+relationship. Such a rule does not produce uncertainty; it produces **confident
+mistakes**. So there is deliberately **no name-similarity candidate finder** any
+more, and `actions/entities.ts` carries a note saying so, to stop it being
+helpfully re-added.
+
+Inside one story the cast is a few dozen names, the lines that answer "is
+模糊的声音 somebody already in the room" are in that room, and a wrong pairing
+cannot arrive from a story nobody opened. The alias target is a `<select>` of
+**this story's other speakers** — nothing proposes a pairing. 反常光谱 shows why
+it works: 154 speakers, of whom **eleven are mood-variants of 矿工** (冷静的矿工,
+兴奋的矿工, 恍惚的矿工, 愤怒的矿工, 疲倦的矿工, …) each holding its own entity row
+with 13-50 lines and almost nothing elsewhere. Visibly one anonymous crowd in one
+view; scattered across 6,889 rows globally.
+
+`linesHere` against `linesTotal` is the comparison that decides: 雷尔金 has 381
+lines here and 0 elsewhere (this story's character), while 医疗干员 has 14 here and
+634 across 44 stories (a role every story reuses). Already-reviewed rows are
+hidden by default, but the alias dropdown is built from the **full** cast — the
+target is usually a reviewed row, since 阿米娅 is exactly who a 模糊的声音 might be.
+
+Merge-vs-link stays the one decision made by evidence rather than by the
+reviewer, because that evidence is documentary rather than textual: if the name
+has its own 人员档案 the game keeps a separate record, so link as `同一人` and
+keep both; if it does not, the name only ever existed in dialogue and merging is
+right. `mergeEntities` repoints `entity_relations`, `comment_anchors.entity_id`,
+`correlation_members.entity_id` and `@entity/<id>` tokens in board text BEFORE
+deleting, because all three FKs are `ON DELETE CASCADE` — deleting first takes a
+reader's comment and a board node with it. It also drops repointed edges that
+become self-loops or collide with an existing `(from,to,kind)`, and re-canonicalises
+`from < to` for symmetric kinds using `relation_kinds.is_symmetric`.
+
+The global list survives at `?mode=all` for working through the heaviest names
+quickly, labelled as such.
 
 **`？？？` needs no handling and should keep none.** `seed_entities.py` and
 `scope_speakers()` both exclude `^[？?]+$`. A masked speaker is an unresolved

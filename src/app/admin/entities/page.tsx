@@ -1,19 +1,18 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import {
-  listReviewQueue, reviewProgress,
+  listReviewQueue, reviewProgress, listStoryReviewProgress, listStoryCast,
 } from '@/app/actions/entities'
-import {
-  IDENTITIES, IDENTITY_LABEL, type Identity, type Review,
-} from '@/lib/graph'
+import { IDENTITIES, IDENTITY_LABEL, type Identity, type Review } from '@/lib/graph'
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 import EntityReviewList from '@/components/EntityReviewList'
-import EntityMergePanel from '@/components/EntityMergePanel'
+import StoryCastReview from '@/components/StoryCastReview'
 
 export const dynamic = 'force-dynamic'
 
 interface Props {
   searchParams: Promise<{
+    story?: string; mode?: string; cat?: string
     identity?: string; review?: string; type?: string
     q?: string; min?: string; page?: string
   }>
@@ -21,47 +20,7 @@ interface Props {
 
 const PER = 50
 
-export default async function EntityReviewPage({ searchParams }: Props) {
-  if (!(await isCurrentUserAdmin())) redirect('/')
-  const sp = await searchParams
-
-  const identity = (sp.identity ?? 'unverified') as Identity | 'all'
-  const review = (sp.review ?? 'all') as Review | 'all'
-  const minMentions = sp.min ? parseInt(sp.min, 10) : 20
-  const page = Math.max(1, parseInt(sp.page ?? '1', 10))
-
-  const [queue, progress] = await Promise.all([
-    listReviewQueue({
-      identity, review, type: sp.type || undefined, q: sp.q || undefined,
-      minMentions, limit: PER, offset: (page - 1) * PER,
-    }),
-    reviewProgress(),
-  ])
-
-  if ('error' in queue) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 py-12 font-mono text-[12px]">
-        <p className="text-ark-danger">{queue.error}</p>
-        <p className="mt-4 text-ark-muted text-[11px] leading-relaxed font-sans">
-          如果提示 <code className="text-ark-text">identity</code> 或{' '}
-          <code className="text-ark-text">review</code> 列不存在，说明迁移{' '}
-          <code className="text-ark-text">044_graph_schema.sql</code> 还没应用——
-          它需要在 Supabase SQL 编辑器里手动执行。
-        </p>
-      </div>
-    )
-  }
-
-  const pages = Math.max(1, Math.ceil(queue.total / PER))
-  const qs = (patch: Record<string, string | number | undefined>) => {
-    const u = new URLSearchParams()
-    const merged = { identity, review, type: sp.type, q: sp.q, min: minMentions, page, ...patch }
-    for (const [k, v] of Object.entries(merged)) {
-      if (v !== undefined && v !== '' && v !== null) u.set(k, String(v))
-    }
-    return `/admin/entities?${u.toString()}`
-  }
-
+function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="max-w-4xl mx-auto px-4 py-12 font-mono text-[12px]">
       <div className="h-0.5 w-16 bg-ark-accent mb-8" />
@@ -69,120 +28,257 @@ export default async function EntityReviewPage({ searchParams }: Props) {
         实体复核
       </h1>
       <p className="text-[10px] text-ark-muted tracking-widest uppercase mb-6">
-        {'// ENTITY REVIEW · IDENTITY & SUSPICIOUS QUEUE'}
+        {'// ENTITY REVIEW · PER STORY'}
       </p>
+      {children}
+    </div>
+  )
+}
 
-      <div className="text-[11px] text-ark-muted leading-relaxed mb-8 font-sans space-y-2">
-        <p>
-          6,889 个说话人被当成了 <code className="text-ark-text">character</code>，
-          但其中大部分不是「一个人」。全部 715 个故事统计下来：
-          <b className="text-ark-text">5,633 个只在一个故事里说过话</b>；
-          而在 5 个以上故事里出现的 148 个非干员说话人，其实是三种东西混在一起——
-        </p>
-        <ul className="pl-4 space-y-1">
-          <li>
-            <b className="text-ark-text">具名</b>：塔露拉（17 个故事、1,605 行）、魏彦吾、特蕾西娅。
-            真实人物，只是没有可操作的干员档案，合并成一个节点是对的。
-          </li>
-          <li>
-            <b className="text-ark-text">泛指</b>：医疗干员（<b className="text-ark-text">44 个故事</b>）、
-            罗德岛干员（28）、维多利亚士兵（11）。有名无姓的真人——一个节点其实是 44 个人，
-            挂在上面的任何关系都是错的。
-          </li>
-          <li>
-            <b className="text-ark-text">非人物</b>：众人（合声）、广播、门外的声音、
-            父亲（每次都是不同的人）。根本不该是实体。
-          </li>
-        </ul>
-        <p>
-          这件事推导不出来，是对文本含义的判断，所以放在这里由人来做。做完之后，
-          <code className="text-ark-text">044</code> 的触发器会拒绝把关系挂到
-          「非人物」或仍待复核的节点上——批量抽取因此在物理上碰不到未判定的实体。
-        </p>
-        <p>
-          放在这里而不是放进每个故事/章节里，是因为<b className="text-ark-text">判断的对象是实体，不是故事</b>：
-          医疗干员出现在 44 个故事里，按故事做就要走 44 次、也就有 44 次做出不同判断的机会，
-          而 5,633 个只出现一次的说话人永远排不出一个能干完的顺序。
-          按故事看唯一的好处是上下文，所以上下文被搬到这里来了——点「证据」就能看到
-          它在哪些故事里说话、各说了多少行、原话是什么。
-        </p>
-      </div>
+export default async function EntityReviewPage({ searchParams }: Props) {
+  if (!(await isCurrentUserAdmin())) redirect('/')
+  const sp = await searchParams
 
-      {!('error' in progress) && (
-        <div className="flex gap-4 flex-wrap mb-6 text-[10px] uppercase tracking-widest">
-          {IDENTITIES.map(i => (
-            <span key={i} className="text-ark-muted">
-              {IDENTITY_LABEL[i]}{' '}
-              <b className="text-ark-text">{progress.byIdentity[i]?.toLocaleString() ?? 0}</b>
-            </span>
-          ))}
-          <span className="text-ark-muted">
-            待复核 <b className="text-ark-danger">{progress.suspicious.toLocaleString()}</b>
+  // ---- one story's cast -----------------------------------------------------
+  if (sp.story) {
+    const storyId = parseInt(sp.story, 10)
+    const r = await listStoryCast(storyId)
+    if ('error' in r) {
+      return <Shell><p className="text-ark-danger">{r.error}</p></Shell>
+    }
+    const done = r.cast.filter(c => c.review === 'reviewed').length
+    // A big story's cast is long — 反常光谱 has 154 speakers, eleven of them
+    // mood-variants of 矿工 — so finished rows are hidden by default.
+    const all = sp.mode === 'cast-all'
+    const cast = all ? r.cast : r.cast.filter(c => c.review !== 'reviewed')
+    return (
+      <Shell>
+        <div className="flex items-baseline gap-3 mb-4 flex-wrap">
+          <h2 className="text-[15px] text-ark-text font-sans">{r.story}</h2>
+          <span className="text-[10px] text-ark-muted uppercase tracking-widest">
+            {'//'} {r.cast.length} 个说话人 · 已复核 {done} · 待办 {r.cast.length - done}
           </span>
+          <Link href={`/admin/entities?story=${storyId}${all ? '' : '&mode=cast-all'}`}
+                className="text-[10px] uppercase tracking-widest text-ark-accent
+                           hover:text-ark-accent-bright">
+            {'//'} {all ? '只看待办' : '显示全部'}
+          </Link>
+          <Link href="/admin/entities"
+                className="ml-auto text-[10px] uppercase tracking-widest text-ark-accent
+                           hover:text-ark-accent-bright">
+            {'//'} ← 换故事
+          </Link>
         </div>
-      )}
+        <p className="text-[11px] text-ark-muted leading-relaxed mb-6 font-sans">
+          在一个故事里判定，是为了<b className="text-ark-text">避开跨故事的同名巧合</b>：
+          安娜不是薇薇安娜，瑟琳不是凯瑟琳——按名字相似度配对不会产生「不确定」，
+          只会产生<b className="text-ark-text">自信的错误</b>。所以这里不提任何配对建议；
+          「是谁的别名」的候选只来自<b className="text-ark-text">本故事的其他说话人</b>，
+          由你选。判断所需的台词也只取本故事的。
+        </p>
+        <StoryCastReview cast={cast} roster={r.cast} />
+      </Shell>
+    )
+  }
 
-      <EntityMergePanel />
+  // ---- the old global queue, kept as a secondary view -----------------------
+  if (sp.mode === 'all') {
+    const identity = (sp.identity ?? 'unverified') as Identity | 'all'
+    const review = (sp.review ?? 'all') as Review | 'all'
+    const minMentions = sp.min ? parseInt(sp.min, 10) : 20
+    const page = Math.max(1, parseInt(sp.page ?? '1', 10))
+    const [queue, progress] = await Promise.all([
+      listReviewQueue({
+        identity, review, type: sp.type || undefined, q: sp.q || undefined,
+        minMentions, limit: PER, offset: (page - 1) * PER,
+      }),
+      reviewProgress(),
+    ])
+    if ('error' in queue) {
+      return <Shell><p className="text-ark-danger">{queue.error}</p></Shell>
+    }
+    const pages = Math.max(1, Math.ceil(queue.total / PER))
+    const qs = (patch: Record<string, string | number | undefined>) => {
+      const u = new URLSearchParams()
+      const merged = {
+        mode: 'all', identity, review, type: sp.type, q: sp.q, min: minMentions, page, ...patch,
+      }
+      for (const [k, v] of Object.entries(merged)) {
+        if (v !== undefined && v !== '' && v !== null) u.set(k, String(v))
+      }
+      return `/admin/entities?${u.toString()}`
+    }
+    return (
+      <Shell>
+        <div className="flex items-baseline gap-3 mb-4">
+          <h2 className="text-[15px] text-ark-text font-sans">全局列表</h2>
+          <Link href="/admin/entities"
+                className="ml-auto text-[10px] uppercase tracking-widest text-ark-accent
+                           hover:text-ark-accent-bright">
+            {'//'} ← 按故事复核
+          </Link>
+        </div>
+        <p className="text-[11px] text-ark-muted leading-relaxed mb-6 font-sans">
+          这是按影响排序的全局列表，用来快速处理台词最多的那些。
+          真正需要上下文的判断请用<b className="text-ark-text">按故事复核</b>——
+          跨故事比较名字会产生自信的错误。
+        </p>
+        {!('error' in progress) && (
+          <div className="flex gap-4 flex-wrap mb-6 text-[10px] uppercase tracking-widest">
+            {IDENTITIES.map(i => (
+              <span key={i} className="text-ark-muted">
+                {IDENTITY_LABEL[i]}{' '}
+                <b className="text-ark-text">{progress.byIdentity[i]?.toLocaleString() ?? 0}</b>
+              </span>
+            ))}
+            <span className="text-ark-muted">
+              待复核 <b className="text-ark-danger">{progress.suspicious.toLocaleString()}</b>
+            </span>
+          </div>
+        )}
+        <form action="/admin/entities" className="flex gap-2 flex-wrap items-end mb-6">
+          <input type="hidden" name="mode" value="all" />
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] text-ark-muted uppercase tracking-widest">判定</span>
+            <select name="identity" defaultValue={identity}
+                    className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text">
+              <option value="all">全部</option>
+              {IDENTITIES.map(i => <option key={i} value={i}>{IDENTITY_LABEL[i]}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] text-ark-muted uppercase tracking-widest">复核</span>
+            <select name="review" defaultValue={review}
+                    className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text">
+              <option value="all">全部</option>
+              <option value="none">未标记</option>
+              <option value="suspicious">待复核</option>
+              <option value="reviewed">已复核</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] text-ark-muted uppercase tracking-widest">台词下限</span>
+            <input name="min" type="number" min={0} defaultValue={minMentions}
+                   className="w-24 bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] text-ark-muted uppercase tracking-widest">搜索</span>
+            <input name="q" defaultValue={sp.q ?? ''} placeholder="名称"
+                   className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text" />
+          </label>
+          <button type="submit"
+                  className="border border-ark-accent-dim px-3 py-1 text-[10px] uppercase
+                             tracking-widest text-ark-accent hover:bg-ark-accent/10">
+            筛选
+          </button>
+        </form>
+        <p className="text-[10px] text-ark-muted uppercase tracking-widest mb-3">
+          {'//'} {queue.total.toLocaleString()} 条 · 第 {page}/{pages} 页
+        </p>
+        <EntityReviewList rows={queue.rows} />
+        <div className="flex gap-4 mt-6 text-[10px] uppercase tracking-widest">
+          {page > 1 && (
+            <Link href={qs({ page: page - 1 })} className="text-ark-accent">{'//'} ← 上一页</Link>
+          )}
+          {page < pages && (
+            <Link href={qs({ page: page + 1 })} className="text-ark-accent">{'//'} 下一页 →</Link>
+          )}
+        </div>
+      </Shell>
+    )
+  }
 
-      {/* A plain form, server-rendered, like /world — no client JS for filters. */}
-      <form action="/admin/entities" className="flex gap-2 flex-wrap items-end mb-6">
-        <label className="flex flex-col gap-1">
-          <span className="text-[9px] text-ark-muted uppercase tracking-widest">判定</span>
-          <select name="identity" defaultValue={identity}
-                  className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text">
-            <option value="all">全部</option>
-            {IDENTITIES.map(i => <option key={i} value={i}>{IDENTITY_LABEL[i]}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[9px] text-ark-muted uppercase tracking-widest">复核</span>
-          <select name="review" defaultValue={review}
-                  className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text">
-            <option value="all">全部</option>
-            <option value="none">未标记</option>
-            <option value="suspicious">待复核</option>
-            <option value="reviewed">已复核</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[9px] text-ark-muted uppercase tracking-widest">台词下限</span>
-          <input name="min" type="number" min={0} defaultValue={minMentions}
-                 className="w-24 bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[9px] text-ark-muted uppercase tracking-widest">搜索</span>
-          <input name="q" defaultValue={sp.q ?? ''} placeholder="名称"
-                 className="bg-ark-bg-2 border border-ark-border px-2 py-1 text-ark-text" />
-        </label>
-        <button type="submit"
-                className="border border-ark-accent-dim px-3 py-1 text-[10px] uppercase
-                           tracking-widest text-ark-accent hover:bg-ark-accent/10">
-          筛选
-        </button>
-      </form>
+  // ---- the work list: which stories still have unjudged speakers ------------
+  const prog = await listStoryReviewProgress()
+  if ('error' in prog) {
+    return (
+      <Shell>
+        <p className="text-ark-danger">{prog.error}</p>
+        {prog.missing && (
+          <p className="mt-4 text-[11px] text-ark-muted leading-relaxed font-sans">
+            迁移 <code className="text-ark-text">045_story_review_progress.sql</code>{' '}
+            还没应用——它要在 Supabase SQL 编辑器里手动执行。
+            在那之前可以先用{' '}
+            <Link href="/admin/entities?mode=all" className="text-ark-accent">全局列表</Link>。
+          </p>
+        )}
+      </Shell>
+    )
+  }
 
-      <p className="text-[10px] text-ark-muted uppercase tracking-widest mb-3">
-        {'//'} {queue.total.toLocaleString()} 条 · 第 {page}/{pages} 页 ·
-        {' '}按台词数排序（影响大的先判）
+  const cats = [...new Set(prog.progress.map(p => p.category))]
+  const shown = sp.cat
+    ? prog.progress.filter(p => p.category === sp.cat)
+    : prog.progress
+  const open = shown.filter(p => p.unresolved > 0)
+  const totalOpen = prog.progress.reduce((n, p) => n + p.unresolved, 0)
+
+  return (
+    <Shell>
+      <p className="text-[11px] text-ark-muted leading-relaxed mb-6 font-sans">
+        每个故事里的说话人，在<b className="text-ark-text">那个故事里</b>判定：
+        是具名人物、泛指身份、非人物，还是已有角色的别名。
+        这样做是为了避开跨故事的同名巧合——安娜不是薇薇安娜，瑟琳不是凯瑟琳，
+        按名字相似度配对不会产生「不确定」，只会产生自信的错误。
+        判断所需的台词就在这个故事里。
       </p>
 
-      <EntityReviewList rows={queue.rows} />
-
-      <div className="flex gap-4 mt-6 text-[10px] uppercase tracking-widest">
-        {page > 1 && (
-          <Link href={qs({ page: page - 1 })} className="text-ark-accent hover:text-ark-accent-bright">
-            {'//'} ← 上一页
-          </Link>
-        )}
-        {page < pages && (
-          <Link href={qs({ page: page + 1 })} className="text-ark-accent hover:text-ark-accent-bright">
-            {'//'} 下一页 →
-          </Link>
-        )}
-        <Link href="/admin" className="ml-auto text-ark-muted hover:text-ark-text">
-          {'//'} ← 管理台
+      <div className="flex gap-3 flex-wrap items-baseline mb-4 text-[10px] uppercase tracking-widest">
+        <span className="text-ark-muted">
+          待办 <b className="text-ark-danger">{totalOpen.toLocaleString()}</b> 个说话人
+          · <b className="text-ark-text">{open.length}</b> 个故事
+        </span>
+        <Link href="/admin/entities?mode=all"
+              className="ml-auto text-ark-accent hover:text-ark-accent-bright">
+          {'//'} 全局列表 →
         </Link>
       </div>
-    </div>
+
+      <div className="flex gap-2 flex-wrap mb-6 text-[10px] uppercase tracking-widest">
+        <Link href="/admin/entities"
+              className={`px-2 py-1 border ${!sp.cat
+                ? 'border-ark-accent text-ark-accent' : 'border-ark-border text-ark-muted'}`}>
+          全部
+        </Link>
+        {cats.map(c => (
+          <Link key={c} href={`/admin/entities?cat=${encodeURIComponent(c)}`}
+                className={`px-2 py-1 border ${sp.cat === c
+                  ? 'border-ark-accent text-ark-accent' : 'border-ark-border text-ark-muted'}`}>
+            {c}
+          </Link>
+        ))}
+      </div>
+
+      <ul className="space-y-1">
+        {shown.slice(0, 200).map(p => (
+          <li key={p.storyId}>
+            <Link href={`/admin/entities?story=${p.storyId}`}
+                  className="flex items-baseline gap-3 border border-ark-border px-3 py-2
+                             hover:border-ark-accent-dim hover:bg-ark-accent/5 transition-colors">
+              <span className="text-[9px] text-ark-muted uppercase tracking-widest w-16 shrink-0">
+                {p.category}
+              </span>
+              <span className="text-[12px] text-ark-text truncate">{p.storyName}</span>
+              <span className="ml-auto text-[10px] text-ark-muted shrink-0">
+                {p.speakers} 个说话人 · {p.lines.toLocaleString()} 行
+              </span>
+              <span className={`text-[10px] w-16 text-right shrink-0
+                ${p.unresolved ? 'text-ark-danger' : 'text-ark-success'}`}>
+                {p.unresolved ? `待办 ${p.unresolved}` : '已完成'}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {shown.length > 200 && (
+        <p className="mt-3 text-[10px] text-ark-muted">
+          {'//'} 还有 {shown.length - 200} 个故事，用上面的分类筛选
+        </p>
+      )}
+      <Link href="/admin" className="inline-block mt-6 text-[10px] uppercase tracking-widest
+                                     text-ark-muted hover:text-ark-text">
+        {'//'} ← 管理台
+      </Link>
+    </Shell>
   )
 }

@@ -53,3 +53,46 @@ export interface EvidenceStory {
   lines: number
   samples: string[]
 }
+
+/** One story's review state, from `story_review_progress()` (045). */
+export interface StoryProgress {
+  storyId: number
+  storyName: string
+  category: string
+  speakers: number
+  unresolved: number
+  lines: number
+}
+
+/**
+ * One speaker inside one story — the unit review actually works on.
+ *
+ * Review is per story because name similarity ACROSS stories is where
+ * coincidence lives: 安娜 is not 薇薇安娜 and 瑟琳 is not 凯瑟琳, and a rule that
+ * pairs them by spelling produces confident mistakes. Inside one story the cast
+ * is a few dozen names, and "is 模糊的声音 someone who also speaks here" is
+ * answerable by reading it.
+ *
+ * `linesHere` vs `linesTotal` is the one comparison that matters for judging:
+ * a name with 40 lines here and 40 in total belongs to this story, while 医疗干员
+ * with 14 here and 634 across 44 stories is a role every story reuses.
+ */
+export interface CastRow {
+  /** NULL when the speaker has no entity row at all — itself worth seeing. */
+  entityId: number | null
+  name: string
+  linesHere: number
+  linesTotal: number
+  storiesTotal: number | null
+  identity: Identity | null
+  review: Review | null
+  reviewNote: string | null
+  /**
+   * Whether the game keeps its own 人员档案 for this name. The documentary
+   * discriminator for merge-vs-link, and the only part of alias detection that
+   * is NOT name-based: if a separate official record exists, it is a separate
+   * record, so link as 同一人 rather than merging one away.
+   */
+  hasRecord: boolean
+  samples: string[]
+}

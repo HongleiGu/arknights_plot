@@ -38,6 +38,7 @@ import { isCurrentUserAdmin } from '@/app/actions/comments'
 import {
   IDENTITIES, REVIEWS,
   type Identity, type Review, type ReviewRow, type EvidenceStory,
+  type StoryProgress, type CastRow,
 } from '@/lib/graph'
 
 async function guard() {
@@ -278,130 +279,128 @@ export async function deleteEntity(
   return { ok: true }
 }
 
-export interface MergeCandidate {
-  keepId: number
-  keepName: string
-  keepLines: number
-  dropId: number
-  dropName: string
-  dropLines: number
-  /** Why these two look like one character. */
-  basis: string
-  /**
-   * Which of the two things this is, and therefore which action is right.
-   *
-   * 'alt'      an 异格 — it has its OWN official 人员档案 and 客观履历, emphasising
-   *            different aspects of the same person. Linking as 同一人 keeps both
-   *            records; merging would discard one. Recommended: link.
-   * 'nickname' a name that only ever appeared in dialogue, with no official
-   *            record of its own. One character, two rows. Recommended: merge.
-   */
-  kind: 'alt' | 'nickname'
-}
-
 /**
- * Pairs that look like the same character, on grounded evidence only.
+ * Which stories still have speakers nobody has judged (045).
  *
- * Two signals, both from official text rather than from similarity:
- *  1. one name CONTAINS the other — 荒芜拉普兰德 ⊃ 拉普兰德, which is how the game
- *     names an operator's alternate form;
- *  2. and the longer one's official 客观履历 opens by naming the shorter one
- *     ("拉普兰德，无业，叙拉古萨卢佐家族现任家主阿尔贝托的独女…" on 荒芜拉普兰德's row).
- *
- * Signal 2 is what makes this more than string matching: 夜莺 contains 莺 by
- * accident, but no 客观履历 introduces it as 莺. Containment alone is offered
- * when there is no summary to check, marked as the weaker basis.
+ * Returns `null` for `progress` when `story_review_progress()` is absent, so
+ * the page can say which migration is missing instead of showing an error.
  */
-export async function findMergeCandidates(): Promise<
-  { candidates: MergeCandidate[] } | { error: string }
+export async function listStoryReviewProgress(): Promise<
+  { progress: StoryProgress[] } | { error: string; missing?: true }
 > {
   const bad = await guard()
   if (bad) return { error: bad }
   const db = await createClient()
 
-  const rows: {
-    id: number; name: string; summary: string | null
-    mention_count: number; raw: Record<string, unknown> | null
-  }[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data } = await db.from('entities')
-      .select('id, name, summary, mention_count, raw')
-      .eq('type', 'character').range(from, from + 999)
-    const got = (data ?? []) as typeof rows
-    rows.push(...got)
-    if (got.length < 1000) break
-  }
-  // The documentary discriminator for alt-form vs nickname: does the game keep a
-  // separate record for this name? Measured: all 17 alt forms have one, and
-  // every nickname candidate has none.
-  const hasRecord = (r: typeof rows[number]) =>
-    (r.raw ?? {})['source'] === 'personnel_file/客观履历'
-
-  // Only pairs where the longer name's own official 客观履历 OPENS BY NAMING the
-  // shorter one. Containment alone is useless here: it yields 4,810 pairs, led
-  // by 曼弗雷德→雷德 and 华法琳→法琳, and offering those as one-click irreversible
-  // merges would be actively dangerous.
-  //
-  // Two traps, both found by running it:
-  //  - a summary starting with the LONG name trivially starts with its own
-  //    prefix, so 幽灵鲨 "matched" 幽灵 and 薇薇安娜 "matched" 薇薇安. Excluded by
-  //    requiring the summary NOT to open with the long name.
-  //  - several base names can match at once — 归溟幽灵鲨's summary opens "幽灵鲨，"
-  //    which starts with both 幽灵鲨 and 幽灵 — so only the LONGEST match is kept.
-  //
-  // A boundary check on the next character was tried instead and is wrong:
-  // 百炼嘉维尔's summary runs "嘉维尔现在仍是…" with no punctuation, and that is a
-  // true pair.
-  const best = new Map<number, { short: typeof rows[number]; long: typeof rows[number] }>()
-  for (const long of rows) {
-    if (long.name.length < 3) continue
-    const summary = long.summary ?? ''
-    if (!summary || summary.startsWith(long.name)) continue
-    for (const short of rows) {
-      if (short.id === long.id || short.name.length < 2) continue
-      if (!long.name.includes(short.name)) continue
-      if (!summary.startsWith(short.name)) continue
-      const held = best.get(long.id)
-      if (!held || short.name.length > held.short.name.length) {
-        best.set(long.id, { short, long })
-      }
+  const { data, error } = await db.rpc('story_review_progress')
+  if (error) {
+    if (/story_review_progress/.test(error.message)) {
+      return { error: error.message, missing: true }
     }
+    return { error: error.message }
   }
-
-  const out: MergeCandidate[] = [...best.values()].map(({ short, long }) => ({
-    // The base form is the one to keep or link to: it is the name the rest of
-    // the canon uses, and it carries the dialogue history (an alt form has none).
-    keepId: short.id, keepName: short.name, keepLines: short.mention_count,
-    dropId: long.id, dropName: long.name, dropLines: long.mention_count,
-    basis: `「${long.name}」的官方客观履历开头即称其为「${short.name}」`
-      + (hasRecord(long) ? '；它有自己的人员档案，所以是异格而不是昵称' : ''),
-    kind: hasRecord(long) ? 'alt' : 'nickname',
-  }))
-
-  // Nicknames: a name that only appeared in dialogue, abbreviating one that has
-  // an official record. PREFIX containment, not containment — that is what
-  // running it taught: of 6 containment pairs, 4 were suffix coincidences
-  // (安娜 from 薇薇安娜, 瑟琳 from 凯瑟琳, 威尔 from 诺威尔, 法琳 from 华法琳), and a
-  // Chinese transliteration's ending carries no relationship at all. An
-  // abbreviation keeps the start: 幽灵 of 幽灵鲨, 薇薇安 of 薇薇安娜.
-  for (const short of rows) {
-    if (hasRecord(short) || short.name.length < 2) continue
-    for (const long of rows) {
-      if (long.id === short.id || !hasRecord(long)) continue
-      if (!long.name.startsWith(short.name)) continue
-      if (short.mention_count > long.mention_count * 0.5) continue
-      out.push({
-        keepId: long.id, keepName: long.name, keepLines: long.mention_count,
-        dropId: short.id, dropName: short.name, dropLines: short.mention_count,
-        basis: `「${short.name}」是「${long.name}」的前缀、台词少得多、且没有自己的人员档案`,
-        kind: 'nickname',
-      })
-    }
+  const rows = (data ?? []) as {
+    story_id: number; story_name: string; category: string
+    speakers: number; unresolved: number; lines: number
+  }[]
+  return {
+    progress: rows.map(r => ({
+      storyId: r.story_id, storyName: r.story_name, category: r.category,
+      speakers: Number(r.speakers), unresolved: Number(r.unresolved),
+      lines: Number(r.lines),
+    })).sort((a, b) => b.unresolved - a.unresolved || b.lines - a.lines),
   }
-
-  out.sort((a, b) => b.keepLines - a.keepLines)
-  return { candidates: out }
 }
+
+/**
+ * Every speaker in one story, with the context needed to judge it there.
+ *
+ * Sample lines come from THIS story only. That is the point of working per
+ * story: the lines that tell you whether 模糊的声音 is a device or somebody
+ * already in the room are the ones in the room.
+ */
+export async function listStoryCast(
+  storyId: number,
+): Promise<{ story: string; cast: CastRow[] } | { error: string }> {
+  const bad = await guard()
+  if (bad) return { error: bad }
+  const db = await createClient()
+
+  const { data: st } = await db.from('stories')
+    .select('id, name, category').eq('id', storyId).maybeSingle()
+  if (!st) return { error: '找不到该故事' }
+
+  // scope_speakers (034) groups in the database and applies the same
+  // narrator/？？？ exclusions as the progress function.
+  const { data: sp, error: spErr } = await db.rpc('scope_speakers', { p_story: storyId })
+  if (spErr) return { error: spErr.message }
+  const speakers = (sp ?? []) as { speaker: string; lines: number }[]
+  if (!speakers.length) return { story: st.name as string, cast: [] }
+
+  const names = speakers.map(s => s.speaker)
+  const { data: ents } = await db.from('entities')
+    .select('id, name, identity, review, review_note, mention_count, raw')
+    .eq('type', 'character').in('name', names)
+  const byName = new Map(((ents ?? []) as {
+    id: number; name: string; identity: string; review: string
+    review_note: string | null; mention_count: number; raw: Record<string, unknown> | null
+  }[]).map(e => [e.name, e]))
+
+  // Sample lines, one query over the story's chapters rather than one per
+  // speaker — a story has a handful of chapters and a few thousand lines.
+  const { data: chs } = await db.from('chapters').select('id').eq('story_id', storyId)
+  const chIds = ((chs ?? []) as { id: number }[]).map(c => c.id)
+  const samples = new Map<string, string[]>()
+  if (chIds.length) {
+    for (let from = 0; from < 4000; from += 1000) {
+      const { data } = await db.from('nodes')
+        .select('speaker, content').in('chapter_id', chIds)
+        .not('speaker', 'is', null).order('id').range(from, from + 999)
+      const got = (data ?? []) as { speaker: string | null; content: string | null }[]
+      for (const n of got) {
+        const k = (n.speaker ?? '').trim()
+        const t = (n.content ?? '').trim()
+        if (!k || t.length < 6) continue
+        const acc = samples.get(k) ?? []
+        if (acc.length < 3) { acc.push(t.slice(0, 160)); samples.set(k, acc) }
+      }
+      if (got.length < 1000) break
+    }
+  }
+
+  const cast: CastRow[] = speakers.map(s => {
+    const e = byName.get(s.speaker)
+    return {
+      entityId: e?.id ?? null,
+      name: s.speaker,
+      linesHere: Number(s.lines),
+      linesTotal: e?.mention_count ?? 0,
+      storiesTotal: null,
+      identity: (e?.identity ?? null) as CastRow['identity'],
+      review: (e?.review ?? null) as CastRow['review'],
+      reviewNote: e?.review_note ?? null,
+      hasRecord: (e?.raw ?? {})['source'] === 'personnel_file/客观履历',
+      samples: samples.get(s.speaker) ?? [],
+    }
+  })
+  return { story: st.name as string, cast }
+}
+
+// NOTE: there is deliberately no name-similarity candidate finder.
+//
+// One existed and was removed: it paired rows by spelling across all 715
+// stories, which is exactly where coincidence lives. Containment alone gave
+// 4,810 pairs led by 曼弗雷德→雷德 and 华法琳→法琳; of six that survived a
+// stricter rule, four were suffix accidents (安娜 from 薇薇安娜, 瑟琳 from
+// 凯瑟琳, 威尔 from 诺威尔, 法琳 from 华法琳), because the ending of a Chinese
+// transliteration carries no relationship. A rule like that does not produce
+// uncertainty, it produces confident mistakes.
+//
+// Review is per story instead (`listStoryCast`): inside one story the cast is
+// a few dozen names, the lines that answer "is this somebody already in the
+// room" are in that room, and a wrong pairing cannot arrive from a story the
+// reviewer never opened. `mergeEntities` and `linkSameCharacter` are still
+// here — they are driven by an explicit choice now, not by a rule.
 
 /**
  * Link two rows as the same person WITHOUT destroying either (044).
