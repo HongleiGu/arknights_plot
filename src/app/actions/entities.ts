@@ -503,6 +503,7 @@ export interface MergeReport {
   relationsDropped: number
   commentsMoved: number
   boardMembersMoved: number
+  speakerRolesMoved: number
   boardTextRewritten: number
   aliasesAdded: string[]
   tookSummary: boolean
@@ -556,7 +557,8 @@ export async function mergeEntities(
 
   const report: MergeReport = {
     relationsMoved: 0, relationsDropped: 0, commentsMoved: 0,
-    boardMembersMoved: 0, boardTextRewritten: 0, aliasesAdded: [], tookSummary: false,
+    boardMembersMoved: 0, speakerRolesMoved: 0, boardTextRewritten: 0,
+    aliasesAdded: [], tookSummary: false,
   }
 
   const { data: kinds } = await db.from('relation_kinds').select('key, is_symmetric')
@@ -599,6 +601,20 @@ export async function mergeEntities(
   const { data: members } = await db.from('correlation_members')
     .update({ entity_id: keepId }).eq('entity_id', dropId).select('id')
   report.boardMembersMoved = members?.length ?? 0
+
+  // speaker_roles (046) declares ON DELETE SET NULL rather than CASCADE, because
+  // a resolution row is a record of a decision and its reason and citation stay
+  // worth having. That only holds if a MERGE repoints instead of relying on the
+  // delete — otherwise the rows survive with their entity silently blanked.
+  // Tolerates the table not existing, since 046 is applied by hand.
+  for (const col of ['entity_id', 'of_entity_id'] as const) {
+    const { data, error } = await db.from('speaker_roles')
+      .update({ [col]: keepId }).eq(col, dropId).select('id')
+    if (error && !/does not exist|schema cache/i.test(error.message)) {
+      return { error: `迁移 speaker_roles.${col} 失败：${error.message}` }
+    }
+    report.speakerRolesMoved += data?.length ?? 0
+  }
 
   // No FK can repoint a token inside user-authored text, so rewrite it. The
   // meaning is unchanged — it is the same entity — and the alternative is a

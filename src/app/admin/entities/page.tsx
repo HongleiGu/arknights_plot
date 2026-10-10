@@ -8,6 +8,8 @@ import { IDENTITIES, IDENTITY_LABEL, type Identity, type Review } from '@/lib/gr
 import { isCurrentUserAdmin } from '@/app/actions/comments'
 import EntityReviewList from '@/components/EntityReviewList'
 import StoryCastReview from '@/components/StoryCastReview'
+import SpeakerRolePanel from '@/components/SpeakerRolePanel'
+import { listSpeakerRoles } from '@/app/actions/speakerRoles'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,10 +45,16 @@ export default async function EntityReviewPage({ searchParams }: Props) {
   // ---- one story's cast -----------------------------------------------------
   if (sp.story) {
     const storyId = parseInt(sp.story, 10)
-    const r = await listStoryCast(storyId)
+    const [r, rolesR] = await Promise.all([
+      listStoryCast(storyId),
+      listSpeakerRoles(storyId),
+    ])
     if ('error' in r) {
       return <Shell><p className="text-ark-danger">{r.error}</p></Shell>
     }
+    // 046 may not be applied yet; the cast review does not depend on it.
+    const roles = 'error' in rolesR ? [] : rolesR.roles
+    const rolesMissing = 'error' in rolesR ? rolesR.error : null
     const done = r.cast.filter(c => c.review === 'reviewed').length
     // A big story's cast is long — 反常光谱 has 154 speakers, eleven of them
     // mood-variants of 矿工 — so finished rows are hidden by default.
@@ -77,6 +85,17 @@ export default async function EntityReviewPage({ searchParams }: Props) {
           「是谁的别名」的候选只来自<b className="text-ark-text">本故事的其他说话人</b>，
           由你选。判断所需的台词也只取本故事的。
         </p>
+        {rolesMissing
+          ? (
+            <p className="border border-ark-border p-3 mb-8 text-[11px] text-ark-muted
+                          leading-relaxed font-sans">
+              {'//'} 指代解析不可用：{rolesMissing}。
+              「整合运动成员A 其实是组织整合运动的成员」「这里的女儿是谁的女儿」这类判断
+              需要它；下面的判定不受影响。
+            </p>
+          )
+          : <SpeakerRolePanel storyId={storyId} initial={roles} />}
+
         <StoryCastReview cast={cast} roster={r.cast} />
       </Shell>
     )

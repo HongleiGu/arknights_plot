@@ -572,6 +572,65 @@ become self-loops or collide with an existing `(from,to,kind)`, and re-canonical
 The global list survives at `?mode=all` for working through the heaviest names
 quickly, labelled as such.
 
+**A speaker label is not always an entity — `speaker_roles` (`046`).**
+`entities.identity` answers a GLOBAL question (may an edge attach to this vertex
+at all), and three common shapes have no global answer. Found by reading actual
+stories, then counted:
+
+- **整合运动成员A** — the label denotes a ROLE. The stable fact is the
+  *organisation*; the occurrence is an anonymous member. So it should never be a
+  vertex, while 整合运动 should — and is not one, nor are 深池 / 近卫局 / 黑钢,
+  because the book's 组织 chapter covers **companies** and every faction that
+  exists only in plot is missing. **477 rows carry a role+instance suffix across
+  196 stems, 127 of which also exist as the bare word** (村民 and 村民A…).
+- **女儿** — the label denotes a RELATION. "Someone's daughter" is stable; whose
+  depends on the scene, so 具名 is wrong in every story but one. 11 bare
+  relational terms (母亲 124 lines, 爷爷 120, 女儿 37) plus 98 compounds.
+- **蒙面人** — the label denotes a MASK. **549 mask-shaped rows, 5,601 lines.**
+
+One table fixes all three, because they are one bug: identity is a property of
+the OCCURRENCE, not of the name. Scope is the story — `UNIQUE (story_id, speaker)`
+— on the observation that a speaker label is consistent within one story, which
+is also what makes per-story review sound. Node scope was rejected: 414,720 rows
+no human could check.
+
+`kind` is person / role / relational / mask / device, with `entity_id` (the
+individual, NULL when there isn't one), `of_entity_id` (the org for a role, the
+parent for 女儿), a **required** `reason`, `source_refs` under 044's grounding
+CHECK, and `status` ai_draft → confirmed/rejected.
+
+**No `spoiler` column**: anyone reading this archive is assumed to have accepted
+spoilers, so a resolved mask needs no special handling. And a mask is resolved as
+a *cited claim*, never by merging or renaming — the mask is what the text says,
+and merging it into the real character would destroy the fact that the text
+withholds it.
+
+`ON DELETE SET NULL`, not CASCADE, unlike 026/027: a resolution row is a record
+of a decision and its reason and citation stay worth having, and cascading would
+mean deleting 整合运动 silently destroys 196 role statements. **That only holds
+because `mergeEntities` repoints `speaker_roles` before deleting** — otherwise
+the rows survive with their entity quietly blanked.
+
+**What keeps the model's output from being a pile of guesses** is checked in code,
+not asked for in the prompt (`actions/speakerRoles.ts`): it may only cite a node
+it was SHOWN — sample lines go in carrying their `@node/<id>` and a returned
+citation outside that set is dropped, so fabricated evidence cannot land;
+`entity` must match an existing character row verbatim (resolved against all
+characters, not this story's cast, because that *is* the mask case); and `reason`
+is NOT NULL in the table. `of_entity` is the one place a NEW vertex may appear
+and only for a role — 整合运动 has to be creatable or the role case cannot be
+expressed — landing as an `organisation` with `review = 'suspicious'` and
+`raw.proposed_by = 'ai'`.
+
+**Two live-locks were designed out, and both looked like optimisations.** Taking
+sample lines from the story's first N nodes is cheaper than per-speaker queries
+and means a speaker first appearing after the cut-off never gets a citable line,
+so its row is dropped for want of a citation, so `remaining` never falls, so
+"run a batch" asks the same speakers forever. Same for a speaker whose every line
+is too short to quote: batch selection walks PAST those and reports them as
+hand-only, rather than taking the first 18 blindly and blocking everyone behind
+them.
+
 **`？？？` needs no handling and should keep none.** `seed_entities.py` and
 `scope_speakers()` both exclude `^[？?]+$`. A masked speaker is an unresolved
 slot; resolving it asserts a reveal the game is deliberately withholding.

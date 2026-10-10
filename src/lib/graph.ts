@@ -54,6 +54,40 @@ export interface EvidenceStory {
   samples: string[]
 }
 
+/**
+ * What a speaker label means inside one story (046).
+ *
+ * `person`     a specific individual, and this label is their name
+ * `role`       a function or membership — a different person each time
+ * `relational` defined by relation to someone else (女儿 / 师父)
+ * `mask`       a character the text deliberately does not name here
+ * `device`     not a person (众人, 广播, 门外的声音)
+ */
+export const ROLE_KINDS = ['person', 'role', 'relational', 'mask', 'device'] as const
+export type RoleKind = (typeof ROLE_KINDS)[number]
+
+export const ROLE_LABEL: Record<RoleKind, string> = {
+  person: '具体人物',
+  role: '身份/归属',
+  relational: '关系指代',
+  mask: '隐去姓名',
+  device: '非人物',
+}
+
+export interface SpeakerRoleRow {
+  id: number
+  speaker: string
+  kind: RoleKind
+  entityId: number | null
+  entityName: string | null
+  ofEntityId: number | null
+  ofEntityName: string | null
+  reason: string
+  source: string
+  sourceRefs: string[]
+  status: 'ai_draft' | 'confirmed' | 'rejected'
+}
+
 /** One story's review state, from `story_review_progress()` (045). */
 export interface StoryProgress {
   storyId: number
