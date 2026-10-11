@@ -57,7 +57,8 @@ kind 必须是下列之一：
 字段规则：
 - **判断依据是这个标签本身是什么，不是他台词里提到了什么。**如果标签本身就是一个人的名字（专名／代号／头衔+专名），kind 填 person、entity 就填这个名字本身；如果标签是职业、身份、归属，或者「修饰语＋身份」（如「冷静的矿工」「恐惧的纠察队队员」），那就是 role，哪怕它也出现在清单里。某个角色在台词里提到报社、军队或教会，并不能把他本人判成 role。
 - entity：这个标签在本剧情里指的那个具体角色名。必须**逐字**来自给你的「已知角色」清单；不确定就填 null。device 必须填 null。
-- of_entity：这个标签挂靠的对象——role 填它所属的组织（如「整合运动」），relational 填被指代关系的那一方（如「女儿」填她父亲/母亲的名字）。没有就填 null。role 的组织名可以不在清单里。
+- of_entity：这个标签挂靠的对象——role 填它所属的**组织**（如「整合运动」），relational 填被指代关系的那一方（如「女儿」填她父亲/母亲的名字）。没有就填 null。role 的组织名可以不在清单里。
+- **挂靠的对象是人就填 relational，是组织才填 role。**「极光的姐姐」「缠丸的养父」这种「某人的某身份」是 relational，of_entity 填那个人；「整合运动成员A」「纠察队队员」这种「某组织的某身份」才是 role。
 - reason：一句中文，说明**你引用的那条台词**提供了什么依据——他是谁、属于哪个组织、和谁是什么关系。**不要**写「标签在清单里」「标签是专名」这类同义反复，那不是依据。判不出来就写你从台词里能看出的最具体的一点。
 - ref：**必须**是你所看到的台词编号之一，形如 @node/12345。不要写没给过你的编号。
 
@@ -310,12 +311,40 @@ export async function resolveStorySpeakers(
     if (entName && kind !== 'device') {
       entityId = known.get(entName) ?? null
       if (!entityId) { drop(`entity「${entName}」不在已知角色里`); continue }
+      // A mask resolved to ITSELF is not a resolution. 好事的神明 came back as
+      // `mask` with entity=好事的神明, which is circular: the point of `mask` is
+      // that a character is hidden behind the label, so entity must be someone
+      // ELSE or nobody. The classification is kept, the empty answer is honest.
+      if (kind === 'mask' && entName === speaker) entityId = null
     }
 
     let ofId: number | null = null
     const ofName = str(r.of_entity)
     if (ofName) {
       ofId = anchors.get(ofName) ?? known.get(ofName) ?? null
+      // The rosters handed to the model are CAPPED (this story's cast plus the
+      // 120 heaviest named characters), so a miss there does not mean the entity
+      // is absent. Look it up uncapped before considering creating anything —
+      // without this, 村民的孩子 proposing 村民 found nothing in the rosters and
+      // 村民 was inserted as an ORGANISATION, as were 女人 and 女孩. Measured over
+      // the 84 possessive labels whose head is itself a character row, 3 of 8
+      // sampled would have been created that way.
+      if (!ofId) {
+        const { data: found } = await db.from('entities')
+          .select('id, type').eq('name', ofName)
+        const rows = (found ?? []) as { id: number; type: string }[]
+        // When a name exists as several types — 罗德岛 is both an organisation and
+        // a speaker — membership wants the organisation and a relation wants the
+        // person.
+        const prefer = kind === 'role'
+          ? ['organisation', 'nation', 'place', 'character']
+          : ['character', 'organisation', 'nation', 'place']
+        for (const t of prefer) {
+          const hit = rows.find(x => x.type === t)
+          if (hit) { ofId = hit.id; break }
+        }
+        if (!ofId && rows.length) ofId = rows[0].id
+      }
       // A new organisation may only be created when the SPEAKER LABEL CONTAINS
       // its name. That is the whole motivating case — 整合运动成员A contains
       // 整合运动, 恐惧的纠察队队员 contains 纠察队 — and it blocks the failure the
@@ -329,7 +358,14 @@ export async function resolveStorySpeakers(
       // over one field: 特工A was rightly called a `role`, and because its
       // proposed 梅兰德安全咨询公司 did not exist, the row vanished and the speaker
       // stayed unresolved. The proposal is kept in the reason so it is not lost.
-      if (!ofId && kind === 'role' && !speaker.includes(ofName)) {
+      //
+      // A POSSESSIVE label never creates anything. 「X的Y」 states a relation, not
+      // a membership: 整合运动成员A has no 的 and means "a member of 整合运动",
+      // while 极光的姐姐 means "极光's sister" and X is a person. Creating an
+      // organisation from the latter is how a character's name ends up typed as
+      // an org, and it is the shape 3,083 speaker labels have.
+      const possessive = speaker.includes(`${ofName}的`)
+      if (!ofId && kind === 'role' && (possessive || !speaker.includes(ofName))) {
         unanchored.push({ speaker, proposed: ofName })
         ofId = null
       } else if (!ofId && kind === 'role') {
