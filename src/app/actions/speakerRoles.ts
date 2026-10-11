@@ -67,6 +67,20 @@ kind 必须是下列之一：
 const PER_CALL = 18          // speakers per model call
 const LINES_PER = 3          // sample lines shown per speaker
 const LINE_CAP = 120         // characters per sample line
+const CANDIDATE_LINES = 40   // lines fetched per speaker to choose those 3 from
+
+/**
+ * Does this line carry anything a reader could judge from?
+ *
+ * `......` passes a length check and says nothing. So does `？？？`, `——`, and a
+ * lone `！`. Strip ellipsis, dashes and CJK/ASCII punctuation; if under three
+ * characters survive, the line is silence with a glyph on it.
+ */
+function substantive(text: string): boolean {
+  const core = text
+    .replace(/[.。·・…⋯\-—–~～!！?？,，、;；:：'"“”‘’()（）\[\]【】<>《》\s]/g, '')
+  return core.length >= 3
+}
 
 async function adminDb() {
   if (!(await isCurrentUserAdmin())) return null
@@ -177,14 +191,20 @@ export async function resolveStorySpeakers(
     if (!chIds.length) break
     const { data } = await db.from('nodes')
       .select('id, content').in('chapter_id', chIds)
-      .eq('speaker', cand.speaker).order('id').limit(LINES_PER * 3)
-    const acc: { id: number; text: string }[] = []
-    for (const n of (data ?? []) as { id: number; content: string | null }[]) {
-      const t = (n.content ?? '').trim()
-      if (t.length < 4) continue
-      acc.push({ id: n.id, text: t.slice(0, LINE_CAP) })
-      if (acc.length >= LINES_PER) break
-    }
+      .eq('speaker', cand.speaker).order('id').limit(CANDIDATE_LINES)
+    // Take the most INFORMATIVE lines, not the first ones. A character's
+    // opening lines in an AVG script are routinely silence: 雷尔金 has 381 lines
+    // in 反常光谱 and the first three are all `......`, which tells a model
+    // nothing about who or what he is. So content-free lines are discarded and
+    // the longest survivors win.
+    const scored = ((data ?? []) as { id: number; content: string | null }[])
+      .map(n => ({ id: n.id, text: (n.content ?? '').trim() }))
+      .filter(n => substantive(n.text))
+      .sort((a, b) => b.text.length - a.text.length)
+      .slice(0, LINES_PER)
+      // Back into reading order, so the lines make sense read together.
+      .sort((a, b) => a.id - b.id)
+    const acc = scored.map(n => ({ id: n.id, text: n.text.slice(0, LINE_CAP) }))
     if (!acc.length) { uncitable.push(cand.speaker); continue }
     for (const a of acc) allowedRefs.add(`@node/${a.id}`)
     lines.set(cand.speaker, acc)
