@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 // Per-story speaker resolution (046): run the model over this story's labels,
 // then fix what it got wrong.
@@ -75,6 +75,16 @@ export default function SpeakerRolePanel(
             写入 {report.written} · 还剩 {report.remaining}
             {report.createdOrgs.length > 0 && ` · 新建组织 ${report.createdOrgs.join('、')}`}
           </p>
+          {report.unanchored.length > 0 && (
+            <ul className="mt-1 pl-3 space-y-0.5">
+              {report.unanchored.map((u, i) => (
+                <li key={i} className="text-ark-accent/80">
+                  「{u.speaker}」模型想挂靠到「{u.proposed}」，但标签里没有这个名字，
+                  没有建为实体（判定已保留）
+                </li>
+              ))}
+            </ul>
+          )}
           {report.dropped.length > 0 && (
             <ul className="mt-1 pl-3 space-y-0.5">
               {report.dropped.map((d, i) => (
@@ -174,3 +184,4 @@ function RoleRow({ row }: { row: SpeakerRoleRow }) {
     </li>
   )
 }
+

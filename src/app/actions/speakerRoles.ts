@@ -55,9 +55,10 @@ kind 必须是下列之一：
 - device      根本不是人（如「众人」「广播」「门外的声音」）
 
 字段规则：
+- **判断依据是这个标签本身是什么，不是他台词里提到了什么。**如果标签本身就是一个人的名字（专名／代号／头衔+专名），kind 填 person、entity 就填这个名字本身；如果标签是职业、身份、归属，或者「修饰语＋身份」（如「冷静的矿工」「恐惧的纠察队队员」），那就是 role，哪怕它也出现在清单里。某个角色在台词里提到报社、军队或教会，并不能把他本人判成 role。
 - entity：这个标签在本剧情里指的那个具体角色名。必须**逐字**来自给你的「已知角色」清单；不确定就填 null。device 必须填 null。
 - of_entity：这个标签挂靠的对象——role 填它所属的组织（如「整合运动」），relational 填被指代关系的那一方（如「女儿」填她父亲/母亲的名字）。没有就填 null。role 的组织名可以不在清单里。
-- reason：一句中文，说明依据。必须写，不能空。
+- reason：一句中文，说明**你引用的那条台词**提供了什么依据——他是谁、属于哪个组织、和谁是什么关系。**不要**写「标签在清单里」「标签是专名」这类同义反复，那不是依据。判不出来就写你从台词里能看出的最具体的一点。
 - ref：**必须**是你所看到的台词编号之一，形如 @node/12345。不要写没给过你的编号。
 
 只输出 JSON 数组，形如
@@ -136,6 +137,7 @@ export interface ResolveReport {
   written: number
   remaining: number
   createdOrgs: string[]
+  unanchored: { speaker: string; proposed: string }[]
   dropped: { speaker: string; why: string }[]
 }
 
@@ -173,7 +175,7 @@ export async function resolveStorySpeakers(
     .filter(s => !done.has(s.speaker))
   if (!all.length) {
     return { report: { asked: 0, returned: 0, written: 0, remaining: 0,
-                       createdOrgs: [], dropped: [] } }
+                       createdOrgs: [], unanchored: [], dropped: [] } }
   }
   // Batch selection walks PAST speakers with nothing citable rather than taking
   // the first PER_CALL blindly. Taking them blindly is a second live-lock: a
@@ -212,17 +214,24 @@ export async function resolveStorySpeakers(
   }
   if (!batch.length) {
     return { report: {
-      asked: 0, returned: 0, written: 0, remaining: 0, createdOrgs: [],
+      asked: 0, returned: 0, written: 0, remaining: 0, createdOrgs: [], unanchored: [],
       dropped: uncitable.map(s => ({ speaker: s, why: '没有可引用的台词，只能手工判定' })),
     } }
   }
 
-  // Known characters: every character entity, so a mask can resolve to someone
-  // who never speaks under their own name here. Capped and ranked, with this
-  // story's own cast first so the useful names survive the cap.
+  // Known characters: this story's ENTIRE cast regardless of `identity`, plus
+  // the heaviest named characters globally so a mask can resolve to someone who
+  // never speaks under their own name here.
+  //
+  // The cast must NOT be filtered to identity='named'. It was, and the dry run
+  // showed what that costs: 阿洛伊泽 (423 lines, the most in 反常光谱) and 雷尔金
+  // (381) are both still `unverified`, so neither was offerable — and the model,
+  // unable to say "person = 阿洛伊泽", inferred `role` from a line where he cites
+  // a newspaper and invented the organisation 圣骏堡时报 to hang it on. Withholding
+  // the obvious answer does not make a model abstain; it makes it reach.
   const castNames = ((sp ?? []) as { speaker: string }[]).map(s => s.speaker)
   const { data: castEnts } = await db.from('entities')
-    .select('id, name').eq('type', 'character').eq('identity', 'named')
+    .select('id, name').eq('type', 'character')
     .in('name', castNames)
   const { data: bigEnts } = await db.from('entities')
     .select('id, name').eq('type', 'character').eq('identity', 'named')
@@ -244,7 +253,12 @@ export async function resolveStorySpeakers(
 
   const prompt = [
     `剧情：《${story.name}》`,
-    `已知角色（entity 只能用这些名字，逐字一致）：${[...known.keys()].join('、')}`,
+    // Deliberately NOT called 「已知角色」: this list is the story's own cast plus
+    // heavy global characters, and the cast includes role labels like 矿工 and
+    // 冷静的矿工. Calling the whole list "known characters" told the model that
+    // every speaker in it was a person, which is the question being asked.
+    `可用于 entity 的名字（只能用这些，逐字一致；其中有些本身是身份而不是人名）：`
+      + `${[...known.keys()].join('、')}`,
     `已知组织/地点/种族（of_entity 可以用这些，role 也可以写清单外的组织名）：${[...anchors.keys()].join('、')}`,
     '',
     '需要判断的说话人标签及其台词：',
@@ -272,9 +286,10 @@ export async function resolveStorySpeakers(
     asked: batch.length, returned: parsed.length, written: 0,
     // The uncitable ones are not coming back, so they are not 'remaining'.
     remaining: all.length - batch.length - uncitable.length,
-    createdOrgs: [],
+    createdOrgs: [], unanchored: [],
     dropped: uncitable.map(sp => ({ speaker: sp, why: '没有可引用的台词，只能手工判定' })),
   }
+  const unanchored: { speaker: string; proposed: string }[] = []
   const str = (v: unknown) => typeof v === 'string' ? v.trim() : ''
 
   for (const r of parsed) {
@@ -301,7 +316,23 @@ export async function resolveStorySpeakers(
     const ofName = str(r.of_entity)
     if (ofName) {
       ofId = anchors.get(ofName) ?? known.get(ofName) ?? null
-      if (!ofId && kind === 'role') {
+      // A new organisation may only be created when the SPEAKER LABEL CONTAINS
+      // its name. That is the whole motivating case — 整合运动成员A contains
+      // 整合运动, 恐惧的纠察队队员 contains 纠察队 — and it blocks the failure the
+      // dry run produced: 阿洛伊泽 cites 《圣骏堡时报》 in one line, the model called
+      // him a journalist, and a brand-new organisation 圣骏堡时报 was invented to
+      // hold the mistake. An org inferred from what a character MENTIONS is not
+      // the same as one his label NAMES.
+      //
+      // A blocked anchor costs only the anchor, NOT the row. Dropping the whole
+      // resolution was the first cut and it threw away a correct classification
+      // over one field: 特工A was rightly called a `role`, and because its
+      // proposed 梅兰德安全咨询公司 did not exist, the row vanished and the speaker
+      // stayed unresolved. The proposal is kept in the reason so it is not lost.
+      if (!ofId && kind === 'role' && !speaker.includes(ofName)) {
+        unanchored.push({ speaker, proposed: ofName })
+        ofId = null
+      } else if (!ofId && kind === 'role') {
         // The one place a new vertex may appear, and it arrives unvouched-for:
         // review='suspicious', with the citation that prompted it.
         const { data: made, error: mkErr } = await db.from('entities').insert({
@@ -312,21 +343,30 @@ export async function resolveStorySpeakers(
         if (mkErr) { drop(`创建组织「${ofName}」失败：${mkErr.message}`); continue }
         ofId = made?.id ?? null
         if (ofId) { anchors.set(ofName, ofId); report.createdOrgs.push(ofName) }
+      } else if (!ofId) {
+        // A non-role anchor that resolves to nothing: keep the row, lose the
+        // anchor, say so in the reason. Same rule as above — one bad field must
+        // not discard a correct classification.
+        unanchored.push({ speaker, proposed: ofName })
       }
-      if (!ofId) { drop(`of_entity「${ofName}」无法解析`); continue }
     }
 
     const { error: wErr } = await db.from('speaker_roles').upsert({
       story_id: storyId, speaker, kind,
       entity_id: kind === 'device' ? null : entityId,
       of_entity_id: ofId,
-      reason: reason.slice(0, 500),
+      reason: (() => {
+        const u = unanchored.find(x => x.speaker === speaker)
+        const tail = u ? `（模型提出挂靠「${u.proposed}」，未建为实体）` : ''
+        return (reason + tail).slice(0, 500)
+      })(),
       source: 'ai', source_refs: [ref], status: 'ai_draft',
     }, { onConflict: 'story_id,speaker' })
     if (wErr) { drop(`写入失败：${wErr.message}`); continue }
     report.written++
   }
 
+  report.unanchored = unanchored
   revalidatePath('/admin/entities')
   return { report }
 }
