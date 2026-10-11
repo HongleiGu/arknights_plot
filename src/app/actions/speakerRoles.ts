@@ -364,8 +364,24 @@ export async function resolveStorySpeakers(
       // while 极光的姐姐 means "极光's sister" and X is a person. Creating an
       // organisation from the latter is how a character's name ends up typed as
       // an org, and it is the shape 3,083 speaker labels have.
+      //
+      // Otherwise the name must appear EITHER in the label or in the CITED LINE.
+      // The first rule here was label-only, and testing it against a better
+      // model showed it blocking the right answers: 特工A proposed 梅兰德, whose
+      // cited line reads 「忘了梅兰德的准则了吗？」 — grounded, and refused. Checked
+      // on three proposals, "appears in the cited line" is right where
+      // "appears in the label" was wrong:
+      //   梅兰德        in the line      → allowed  (real, and was being lost)
+      //   螺旋桨天堂     not in the line  → blocked  (inferred from outside it)
+      //   圣骏堡时报     not in the line  → blocked  (the original failure; the
+      //                                   model's REASON named it, the line did not)
+      // Which is the project's own standard: the citation is the evidence, so an
+      // organisation is grounded exactly when the quoted text says it.
+      const citedText = (lines.get(speaker) ?? [])
+        .find(l => `@node/${l.id}` === ref)?.text ?? ''
       const possessive = speaker.includes(`${ofName}的`)
-      if (!ofId && kind === 'role' && (possessive || !speaker.includes(ofName))) {
+      const grounded = speaker.includes(ofName) || citedText.includes(ofName)
+      if (!ofId && kind === 'role' && (possessive || !grounded)) {
         unanchored.push({ speaker, proposed: ofName })
         ofId = null
       } else if (!ofId && kind === 'role') {
