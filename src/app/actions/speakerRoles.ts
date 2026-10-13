@@ -423,6 +423,100 @@ export async function resolveStorySpeakers(
   return { report }
 }
 
+export interface CorpusBatchResult {
+  stories: number
+  written: number
+  createdOrgs: string[]
+  unanchored: { speaker: string; proposed: string }[]
+  dropped: { speaker: string; why: string }[]
+  /** Remaining (story, speaker) pairs with no resolution row. */
+  remaining: number
+  /** 429 — the caller should wait before asking for another slice. */
+  rateLimited: boolean
+  error?: string
+}
+
+const BATCH_MS = 20_000
+
+/** A 429, or a provider phrasing it in prose, means wait rather than fail. */
+function isRateLimit(e: unknown): boolean {
+  const status = (e as { status?: number })?.status
+  const msg = String((e as { message?: string })?.message ?? '')
+  return status === 429 || /rate.?limit|too many requests|quota/i.test(msg)
+}
+
+/**
+ * One TIME-BOXED slice of the whole corpus, so the run can cover all 443 stories
+ * without 463 button presses.
+ *
+ * Deliberately the same harness as AP-29's `runSummaryBatch`, for the same three
+ * reasons — a ~463-call run needs all of them:
+ *  - **the backlog query is the cursor.** Stories are re-ranked from
+ *    `story_review_progress()` every slice and anything already resolved is
+ *    skipped, so closing the tab is a pause rather than a loss and there is no
+ *    job table to keep consistent.
+ *  - **a failed story is skipped, not fatal.** One unparseable response must not
+ *    end a run that has hours left.
+ *  - **429 is a wait, not an error.** The slice stops and says so; the client
+ *    backs off instead of burning the remaining quota on retries.
+ *
+ * Order is by unresolved count descending, so the stories carrying the most
+ * unjudged speakers are done first and a run abandoned halfway still bought the
+ * most it could.
+ */
+export async function runSpeakerRoleCorpusBatch(): Promise<CorpusBatchResult> {
+  const empty: CorpusBatchResult = {
+    stories: 0, written: 0, createdOrgs: [], unanchored: [], dropped: [],
+    remaining: 0, rateLimited: false,
+  }
+  const g = await aiGuard()
+  if ('error' in g) return { ...empty, error: g.error }
+
+  const { data: prog, error: pErr } = await g.db.rpc('story_review_progress')
+  if (pErr) return { ...empty, error: pErr.message }
+  const queue = ((prog ?? []) as { story_id: number; unresolved: number }[])
+    .filter(r => Number(r.unresolved) > 0)
+    .sort((a, b) => Number(b.unresolved) - Number(a.unresolved))
+
+  // `unresolved` counts speakers with no judgement, which is not the same as
+  // speakers with no resolution ROW — so remaining is computed from this table.
+  const { count: resolved } = await g.db.from('speaker_roles')
+    .select('id', { count: 'exact', head: true })
+  const totalPairs = queue.reduce((n, r) => n + Number(r.unresolved), 0)
+
+  const out: CorpusBatchResult = {
+    ...empty,
+    remaining: Math.max(0, totalPairs - (resolved ?? 0)),
+  }
+  const started = Date.now()
+
+  for (const row of queue) {
+    if (Date.now() - started > BATCH_MS) break
+    try {
+      const r = await resolveStorySpeakers(row.story_id)
+      if ('error' in r) {
+        out.dropped.push({ speaker: `story/${row.story_id}`, why: r.error })
+        continue
+      }
+      out.stories++
+      out.written += r.report.written
+      out.createdOrgs.push(...r.report.createdOrgs)
+      out.unanchored.push(...r.report.unanchored)
+      out.dropped.push(...r.report.dropped)
+    } catch (e) {
+      if (isRateLimit(e)) { out.rateLimited = true; break }
+      out.dropped.push({
+        speaker: `story/${row.story_id}`,
+        why: String((e as { message?: string })?.message ?? e),
+      })
+    }
+  }
+
+  out.remaining = Math.max(0, out.remaining - out.written)
+  revalidatePath('/admin/entities')
+  return out
+}
+
 /** Edit or confirm one resolution. Fixing a wrong row is editing it. */
 export async function updateSpeakerRole(
   id: number,

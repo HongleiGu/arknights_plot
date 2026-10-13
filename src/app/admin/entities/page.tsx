@@ -9,6 +9,7 @@ import { isCurrentUserAdmin } from '@/app/actions/comments'
 import EntityReviewList from '@/components/EntityReviewList'
 import StoryCastReview from '@/components/StoryCastReview'
 import SpeakerRolePanel from '@/components/SpeakerRolePanel'
+import SpeakerRoleCorpusPanel from '@/components/SpeakerRoleCorpusPanel'
 import { listSpeakerRoles } from '@/app/actions/speakerRoles'
 
 export const dynamic = 'force-dynamic'
@@ -293,6 +294,8 @@ export default async function EntityReviewPage({ searchParams }: Props) {
         按名字相似度配对不会产生「不确定」，只会产生自信的错误。
         判断所需的台词就在这个故事里。
       </p>
+
+      <SpeakerRoleCorpusPanel />
 
       <div className="flex gap-3 flex-wrap items-baseline mb-4 text-[10px] uppercase tracking-widest">
         <span className="text-ark-muted">
